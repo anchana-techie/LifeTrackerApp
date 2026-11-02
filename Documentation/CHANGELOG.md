@@ -2,6 +2,11 @@
 
 Newest first. Add a line here with every feature change.
 
+## 2026-11-03
+- **Added** Files tab for members and the admin: pick an uploaded year and read its sheets (Daily Dos, Habits, Products, Period, Weight, Month list, Sleep, Water) as read-only tables, month by month. The admin can open any member's files.
+- **Added** Upload > "Create next year's file": starts from the tasks of your latest year, lets you add or remove Daily Dos, Habits and Products, builds the `.xlsx` in the browser (SheetJS from cdnjs) and uploads it as the chosen year, or just downloads it. Daily ticks, weights and sleep start empty; height, water goal and tumbler carry over.
+- **Changed** Weight insight uses morning and night weigh-ins: day gain, overnight change, net per day, weekday pattern and item effects.
+
 ## 2026-11-02
 - **Added** Admin "Everyone" view (default for admins): Today compares everyone's completion, Buy list compares spending by month, Insights combines the whole group. Pick one person to see their own tracker (read-only). The Upload tab is hidden for admins. Code in `group.js`.
 - **Changed** Loading now covers the whole screen with a spinner instead of dimming the page.

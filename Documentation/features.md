@@ -9,7 +9,8 @@
 | Today | Person | Tap tiles to mark Daily Dos, Habits, products bought, period day (not for male accounts), morning and night weight with a BMI warning, and a water tracker. Day or Week view. Changes are collected and saved together. |
 | Buy list | Person | Plan products and budget per month, mark items bought. |
 | Insights | Person | Overview, Daily Dos, Habits, Period cycle (hidden for male accounts), Weight, Spending and restock; for All tracked, last 30 / 7 days or a month. |
-| Upload | Person | Choose a year and an `.xlsx`; lists the years already uploaded. |
+| Upload | Person | Choose a year and an `.xlsx`; lists the years already uploaded. Or **create next year's file**: start from your latest tasks, add or remove Daily Dos / Habits / Products, then create and upload (or download). |
+| Files | Person, Admin | Read-only tables of an uploaded year's sheets, by month. Members see their own years; the admin can open any member's. |
 | Admin | Admin only | Invite emails, see members and their years, open any person's tracker (read-only), remove a wrong upload. |
 | Settings | Person | Change password, sign out, Daily Dos groups, demo data. |
 

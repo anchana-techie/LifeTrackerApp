@@ -304,7 +304,7 @@ function switchTab(tab) {
   $$('.nav-btn').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   window.scrollTo(0, 0);
   $$('.tab-panel').forEach(p => { p.hidden = p.id !== 'tab-' + tab; });
-  if (S.data || S.groupMode || ['upload', 'admin', 'settings'].includes(tab)) renderTab();
+  if (S.data || S.groupMode || ['upload', 'files', 'admin', 'settings'].includes(tab)) renderTab();
 }
 function renderAll() { renderTab(); }
 function renderTab() {
@@ -314,6 +314,7 @@ function renderTab() {
   else if (S.tab === 'analysis') renderAnalysis();
   else if (S.tab === 'settings') { renderGroupEditor(); renderProfileBox(); }
   else if (S.tab === 'upload') renderUpload();
+  else if (S.tab === 'files') renderFiles();
   else if (S.tab === 'admin') renderAdmin();
 }
 
@@ -2084,7 +2085,7 @@ function clearSheet() {
 /** Called by Account whenever the signed-in person changes. */
 async function onAuthChange(profile, msg) {
   if (!profile) {
-    Object.assign(S, { user: null, members: [], memberYears: {}, groupMode: false, group: null, years: [], year: null, viewUid: null, demo: false, pending: freshPending(), buyDraft: null, buyDirty: false });
+    Object.assign(S, { user: null, members: [], memberYears: {}, groupMode: false, group: null, years: [], year: null, viewUid: null, demo: false, files: null, nextYear: null, pending: freshPending(), buyDraft: null, buyDirty: false });
     clearSheet();
     setLoader(false);
     showAuth(msg);
@@ -2179,6 +2180,7 @@ const fileToBase64 = file => new Promise((resolve, reject) => {
 });
 
 async function renderUpload() {
+  renderNextYear();
   const box = $('#myYears');
   try {
     const rows = await Account.listYears(S.user.uid);
@@ -2187,6 +2189,237 @@ async function renderUpload() {
         h('span', { class: 'muted' }, r.uploadedAt?.toDate ? 'uploaded ' + r.uploadedAt.toDate().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : ''))))
       : h('p', { class: 'sub' }, 'Nothing uploaded yet.'));
   } catch (err) { fill(box, h('p', { class: 'sub err' }, err.message)); }
+}
+
+/* ---------- files: read-only view of any uploaded year (members: their own, admin: everyone's) ---------- */
+const FILE_SHEETS = [['dos', 'Daily Dos'], ['habits', 'Habits'], ['products', 'Products'], ['period', 'Period'], ['weight', 'Weight'], ['buy', 'Month list'], ['sleep', 'Sleep'], ['water', 'Water']];
+
+async function renderFiles() {
+  const list = $('#filesList');
+  if (S.demo) { fill(list, h('p', { class: 'sub' }, 'Files are not available in demo mode.')); fill($('#filesViewer')); return; }
+  const admin = S.user.role === 'admin';
+  try {
+    if (admin) { S.members = (await Account.listMembers()).filter(m => !m.deleted); await loadMemberYears(); }
+    const people = admin ? S.members.filter(m => m.role !== 'admin') : [S.user];
+    const rows = await Promise.all(people.map(async p => ({ p, years: admin ? S.memberYears[p.uid] || [] : await Account.listYears(p.uid) })));
+    $('#filesSub').textContent = admin ? 'Open any member’s uploaded year to read it here. Nothing on this page can be edited.' : 'Open one of your uploaded years to read it here. Nothing on this page can be edited.';
+    fill(list, rows.length ? h('div', { class: 'rows', style: 'margin-top:0' }, rows.map(({ p, years }) => h('div', { class: 'row' },
+      h('div', { class: 'who' }, h('b', null, admin ? p.userName : 'Your files')),
+      h('div', { class: 'years' }, years.length
+        ? years.map(r => h('button', { class: 'chip', 'data-file': p.uid + '_' + r.year, 'aria-pressed': String(S.files?.uid === p.uid && S.files?.year === r.year), onclick: () => openFile(p, r.year) }, r.year))
+        : h('span', { class: 'muted' }, 'No files yet'))))) : h('p', { class: 'sub' }, 'No members yet.'));
+    if (!S.files) fill($('#filesViewer'));
+  } catch (err) { fill(list, h('p', { class: 'sub err' }, err.message)); }
+}
+
+async function openFile(person, year) {
+  const prev = S.files;
+  S.files = { uid: person.uid, name: person.userName, gender: person.gender, year, data: null, sheet: prev?.sheet || 'dos', month: null };
+  $$('#filesList .chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.file === person.uid + '_' + year)));
+  fill($('#filesViewer'), h('p', { class: 'sub' }, `Loading ${year}…`));
+  try {
+    const data = await api('read', { year, asUid: person.uid === S.user.uid ? undefined : person.uid });
+    if (S.files?.uid !== person.uid || S.files.year !== year) return;   // another file was opened meanwhile
+    S.files.data = data;
+    renderFileViewer();
+  } catch (err) { S.files = null; fill($('#filesViewer'), h('p', { class: 'sub err' }, err.message)); }
+}
+
+/** the sheets of the open file that have something to show, in tab order */
+function fileKinds(F) {
+  const d = F.data, sh = d.sheets;
+  return FILE_SHEETS.filter(([k]) => {
+    if (k === 'period') return sh.period && F.gender !== 'male';
+    if (k === 'sleep') return Object.keys(d.sleep?.days || {}).length;
+    if (k === 'water') return Object.keys(d.water?.days || {}).length;
+    return sh[k];
+  });
+}
+
+function fileMonths(F, kind) {
+  const d = F.data, sh = d.sheets;
+  const dates = kind === 'sleep' ? Object.keys(d.sleep.days) : kind === 'water' ? Object.keys(d.water.days) : sh[kind]?.dates || [];
+  return [...new Set(dates.map(monthOf))].sort();
+}
+
+function renderFileViewer() {
+  const F = S.files, box = $('#filesViewer');
+  if (!F?.data) return;
+  const d = F.data, kinds = fileKinds(F);
+  if (!kinds.length) { fill(box, h('div', { class: 'card' }, h('p', { class: 'sub' }, 'This file has no sheets the app can read.'))); return; }
+  if (!kinds.some(([k]) => k === F.sheet)) F.sheet = kinds[0][0];
+  const months = fileMonths(F, F.sheet);
+  const perMonth = F.sheet !== 'buy';
+  if (perMonth) {
+    if (!months.includes(F.month)) { const now = monthOf(todayKey()); F.month = months.includes(now) ? now : months[months.length - 1]; }
+  }
+  const pr = d.profile || {};
+  const bits = [pr.height ? `Height ${pr.height} cm` : null, pr.waterGoal ? `Water goal ${pr.waterGoal} ml` : null, pr.tumbler ? `Tumbler ${pr.tumbler} ml` : null].filter(Boolean);
+
+  const body = h('div', { class: 'table-wrap' });
+  const ym = F.month, inMonth = k => k.startsWith(ym);
+  const none = text => h('p', { class: 'sub' }, text);
+  const gridTable = (items, dates) => {
+    const days = dates.filter(inMonth);
+    return h('table', { class: 'table files-grid' },
+      h('thead', null, h('tr', null, h('th', null, 'Item'), days.map(k => h('th', { title: fmt(k) }, Number(k.slice(8)))), h('th', null, 'Total'))),
+      h('tbody', null, items.map(it => { const set = new Set(it.marked); return h('tr', null, h('td', { class: 'name' }, it.name), days.map(k => h('td', { class: set.has(k) ? 'on' : '' }, set.has(k) ? '✓' : '')), h('td', { class: 'tot' }, days.filter(k => set.has(k)).length)); })));
+  };
+  const simpleTable = (head, rows) => h('table', { class: 'table' }, h('thead', null, h('tr', null, head.map(x => h('th', null, x)))), h('tbody', null, rows.map(r => h('tr', null, r.map((c, i) => h('td', i === 0 ? { class: 'name' } : null, c))))));
+  const dayLabel = k => fmt(k, { weekday: 'short', day: 'numeric', month: 'short' });
+  const sh = d.sheets;
+  if (['dos', 'habits', 'products'].includes(F.sheet)) {
+    const s = sh[F.sheet];
+    body.append(s.items.length ? gridTable(s.items, s.dates) : none('No items in this sheet.'));
+  } else if (F.sheet === 'period') {
+    body.append(gridTable([{ name: 'Period', marked: sh.period.marked }], sh.period.dates));
+  } else if (F.sheet === 'weight') {
+    const rows = sh.weight.dates.filter(inMonth).filter(k => sh.weight.entries[k] !== undefined || sh.weight.night?.[k] !== undefined)
+      .map(k => [dayLabel(k), sh.weight.entries[k] !== undefined ? `${sh.weight.entries[k]} kg` : '—', sh.weight.night?.[k] !== undefined ? `${sh.weight.night[k]} kg` : '—']);
+    body.append(rows.length ? simpleTable(['Date', 'Morning', 'Night'], rows) : none('No weigh-ins this month.'));
+  } else if (F.sheet === 'buy') {
+    const rows = MONTHS.filter(m => sh.buy.months[m]?.length || d.budgets?.[m] !== undefined)
+      .map(m => [m, d.budgets?.[m] !== undefined ? rupee(d.budgets[m]) : '—', (sh.buy.months[m] || []).map(i => i.cost !== null ? `${i.product} (${rupee(i.cost)})` : i.product).join(', ') || '—']);
+    body.append(rows.length ? simpleTable(['Month', 'Budget', 'Planned items'], rows) : none('Nothing planned in the buy list.'));
+  } else if (F.sheet === 'sleep') {
+    const rows = Object.keys(d.sleep.days).filter(inMonth).sort().map(k => [dayLabel(k), d.sleep.days[k].wake || '—', d.sleep.days[k].sleep || '—']);
+    body.append(rows.length ? simpleTable(['Date', 'Wake up', 'Sleep'], rows) : none('No sleep logged this month.'));
+  } else if (F.sheet === 'water') {
+    const rows = Object.keys(d.water.days).filter(inMonth).sort().map(k => { const w = d.water.days[k]; return [dayLabel(k), `${w.total} ml`, w.goal ? `${w.goal} ml` : '—']; });
+    body.append(rows.length ? simpleTable(['Date', 'Drunk', 'Goal'], rows) : none('No water logged this month.'));
+  }
+
+  const pick = (key, value) => () => { F[key] = value; renderFileViewer(); };
+  fill(box, h('div', { class: 'card' },
+    h('h2', null, `${F.name} · ${F.year}`),
+    h('p', { class: 'sub' }, [d.title, bits.join(' · ')].filter(Boolean).join(' · ')),
+    h('div', { class: 'pills', style: 'margin-top:12px' }, kinds.map(([k, label]) => h('button', { class: 'chip', 'aria-pressed': String(k === F.sheet), onclick: pick('sheet', k) }, label))),
+    perMonth && months.length ? h('div', { class: 'month-chips' }, months.map(m => h('button', { class: 'chip', 'aria-pressed': String(m === F.month), onclick: pick('month', m) }, MONTHS[Number(m.slice(5)) - 1].slice(0, 3)))) : null,
+    body));
+}
+
+/* ---------- next year's file: start from your tasks, add / remove, then upload ---------- */
+const XLSX_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+let xlsxLoading = null;
+const loadXlsx = () => window.XLSX ? Promise.resolve(window.XLSX) : (xlsxLoading ||= new Promise((resolve, reject) => {
+  document.head.append(h('script', { src: XLSX_SRC, onload: () => resolve(window.XLSX), onerror: () => { xlsxLoading = null; reject(new Error('Could not load the Excel library. Check your connection.')); } }));
+}));
+
+/** The same layout the app reads: one date row + a task per row, a Period calendar, Weight, Month List and Body Settings. */
+function buildYearWorkbook(X, { year, dos, habits, products, profile, slots, period }) {
+  const days = [];
+  for (let m = 0; m < 12; m++) for (let d = 1, n = new Date(year, m + 1, 0).getDate(); d <= n; d++) days.push([m, d]);
+  // written as plain serial numbers with a date format, so no time zone can shift a day
+  const D = (m, d, z = 'd-mmm') => ({ serial: Math.round((Date.UTC(year, m, d) - Date.UTC(1899, 11, 30)) / 864e5), z });
+  const make = (rows, widths) => {
+    const ws = {}, cols = Math.max(...rows.map(r => r.length));
+    rows.forEach((row, r) => row.forEach((v, c) => {
+      if (v === null || v === undefined || v === '') return;
+      ws[X.utils.encode_cell({ r, c })] = typeof v === 'object' ? { t: 'n', v: v.serial, z: v.z } : typeof v === 'number' ? { t: 'n', v } : { t: 's', v: String(v) };
+    }));
+    ws['!ref'] = X.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rows.length - 1, c: cols - 1 } });
+    if (widths) ws['!cols'] = widths.map(wch => ({ wch }));
+    return ws;
+  };
+  const grid = (label, items) => make([[label, ...days.map(([m, d]) => D(m, d))], ...items.map(n => [n])], [28]);
+  const wb = X.utils.book_new();
+  const add = (name, ws) => X.utils.book_append_sheet(wb, ws, name);
+  add('Products', grid('Products', products));
+  add('Daily Dos', grid('Daily Dos', dos));
+  add('Habits', grid('Habits', habits));
+  if (period) {
+    // a row of dates per month, with the row beneath it for the X marks
+    add('Period', make(MONTHS.flatMap((name, m) => [[name, ...days.filter(x => x[0] === m).map(([mm, d]) => D(mm, d))], ['Period day: X']]), [16]));
+  }
+  add('Weight', make([['Date', 'Weight (kg)', 'Night Weight (kg)'], ...days.map(([m, d]) => [D(m, d, 'd-mmm-yy')])], [14, 14, 18]));
+  add('Month List To buy', make([['Month', ...Array.from({ length: slots }, (_, i) => [`Product-${i + 1}`, `Product - ${i + 1} Cost Approx`]).flat()], ...MONTHS.map(m => [m])], [14]));
+  if (profile && (profile.height || profile.waterGoal || profile.tumbler)) {
+    add('Body Settings', make([['Setting', 'Value'], ['Height (cm)', profile.height], ['Water goal (ml)', profile.waterGoal], ['Tumbler (ml)', profile.tumbler]], [18, 10]));
+  }
+  return wb;
+}
+
+async function renderNextYear() {
+  const box = $('#nextYearBox');
+  if (!box || S.user?.role === 'admin') return;
+  const N = S.nextYear;
+  if (!N) {
+    fill(box, h('h2', null, 'Create next year’s file'),
+      h('p', { class: 'sub' }, 'Start from the tasks in your latest year, add or remove any, and the app builds the Excel file and uploads it for you. Daily ticks, weights and sleep start empty.'),
+      h('div', { class: 'row-actions' }, h('button', { class: 'btn primary', id: 'startNextYear', onclick: startNextYear }, icon('file-plus'), ' Start')),
+      h('p', { class: 'sub', id: 'nextYearStatus' }));
+    return;
+  }
+  const list = (key, title, hint) => {
+    const input = h('input', { placeholder: hint, maxlength: '80', 'aria-label': `Add to ${title}` });
+    const add = () => {
+      const name = input.value.replace(/\s+/g, ' ').trim();
+      if (!name) return;
+      if (N[key].some(x => norm(x) === norm(name))) { toast(`“${name}” is already in ${title}.`, true); return; }
+      N[key].push(name); renderNextYear();
+      $$('#nextYearBox input').find(i => i.getAttribute('aria-label') === `Add to ${title}`)?.focus();
+    };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+    return h('div', { class: 'task-list' }, h('h3', null, `${title} (${N[key].length})`),
+      h('div', { class: 'pillset' }, N[key].length ? N[key].map((name, i) => h('span', { class: 'year-tag' }, name,
+        h('button', { class: 'x', type: 'button', title: `Remove ${name}`, 'aria-label': `Remove ${name}`, onclick: () => { N[key].splice(i, 1); renderNextYear(); } }, icon('x')))) : h('span', { class: 'muted' }, 'Nothing here')),
+      h('div', { class: 'task-add' }, input, h('button', { class: 'btn small ghost', type: 'button', onclick: add }, icon('plus'), ' Add')));
+  };
+  const yearInput = h('input', { type: 'number', min: '2000', max: '2100', step: '1', value: N.year, id: 'nextYearNum', style: 'max-width:120px', oninput: e => { N.year = Number(e.target.value); } });
+  fill(box, h('h2', null, `Create the ${N.year} file`),
+    h('p', { class: 'sub' }, N.from ? `Started from your ${N.from} tasks. Remove what you no longer do and add anything new.` : 'You have no uploaded year yet, so add your own tasks.'),
+    h('label', null, 'Year ', yearInput),
+    list('dos', 'Daily Dos', 'e.g. Read 20 pages'), list('habits', 'Habits', 'e.g. No sugar'), list('products', 'Products', 'e.g. Shampoo'),
+    h('div', { class: 'row-actions' },
+      h('button', { class: 'btn primary', id: 'nextYearGo', onclick: () => createNextYear(true) }, icon('upload'), ' Create and upload'),
+      h('button', { class: 'btn ghost', onclick: () => createNextYear(false) }, icon('download'), ' Download only'),
+      h('button', { class: 'btn ghost', onclick: () => { S.nextYear = null; renderNextYear(); } }, 'Cancel')),
+    h('p', { class: 'sub', id: 'nextYearStatus' }));
+}
+
+async function startNextYear() {
+  const btn = $('#startNextYear'), st = $('#nextYearStatus');
+  btn.disabled = true; st.className = 'sub'; st.textContent = 'Reading your latest year…';
+  try {
+    const years = (await Account.listYears(S.user.uid)).map(r => r.year);
+    const latest = years.length ? Math.max(...years) : null;
+    let d = null;
+    if (latest) d = latest === S.year && S.viewUid === S.user.uid && S.data ? S.data : await api('read', { year: latest, asUid: undefined });
+    const names = k => (d?.sheets?.[k]?.items || []).map(i => i.name);
+    S.nextYear = {
+      year: latest ? latest + 1 : new Date().getFullYear(), from: latest,
+      dos: names('dos'), habits: names('habits'), products: names('products'),
+      profile: d?.profile || null, slots: Math.max(d?.sheets?.buy?.slots || 0, 5), period: !hidesPeriod()
+    };
+    renderNextYear();
+  } catch (err) { st.className = 'sub err'; st.textContent = err.message; btn.disabled = false; }
+}
+
+async function createNextYear(upload) {
+  const N = S.nextYear, st = $('#nextYearStatus'), go = $('#nextYearGo');
+  const problem = m => { st.className = 'sub err'; st.textContent = m; };
+  st.className = 'sub';
+  if (!Number.isInteger(N.year) || N.year < 2000 || N.year > 2100) return problem('Enter a year between 2000 and 2100.');
+  if (!N.dos.length && !N.habits.length && !N.products.length) return problem('Add at least one task first.');
+  if (upload && !confirmDiscard()) return;
+  go.disabled = true; st.textContent = 'Building the file…';
+  try {
+    if (upload && (await Account.listYears(S.user.uid)).some(r => r.year === N.year)) return problem(`${N.year} has already been uploaded and cannot be replaced.`);
+    const X = await loadXlsx();
+    const wb = buildYearWorkbook(X, N);
+    if (!upload) { X.writeFile(wb, `${N.year}.xlsx`); st.textContent = `${N.year}.xlsx downloaded.`; return; }
+    st.textContent = 'Uploading and converting to Google Sheets — this can take up to a minute…';
+    S.demo = false;
+    await api('upload', { year: N.year, data: X.write(wb, { bookType: 'xlsx', type: 'base64' }) });
+    const year = N.year;
+    S.nextYear = null; renderNextYear();
+    toast(`${year} created and uploaded`);
+    S.viewUid = S.user.uid; fillUserSelect();
+    await refreshYears(year);
+    await loadSheet();
+    switchTab('log');
+  } catch (err) { problem(err.message); }
+  finally { go.disabled = false; }
 }
 
 async function doUpload(e) {

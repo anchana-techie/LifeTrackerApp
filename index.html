@@ -79,6 +79,7 @@
       <button class="nav-btn" role="tab" data-tab="buy" aria-selected="false"><i class="ti ti-shopping-cart" aria-hidden="true"></i><span>Buy list</span></button>
       <button class="nav-btn" role="tab" data-tab="analysis" aria-selected="false"><i class="ti ti-chart-bar" aria-hidden="true"></i><span>Insights</span></button>
       <button class="nav-btn" role="tab" data-tab="upload" id="navUpload" aria-selected="false"><i class="ti ti-upload" aria-hidden="true"></i><span>Upload</span></button>
+      <button class="nav-btn" role="tab" data-tab="files" aria-selected="false"><i class="ti ti-files" aria-hidden="true"></i><span>Files</span></button>
       <button class="nav-btn" role="tab" data-tab="admin" id="navAdmin" aria-selected="false" hidden><i class="ti ti-users" aria-hidden="true"></i><span>Admin</span></button>
       <button class="nav-btn" role="tab" data-tab="settings" aria-selected="false"><i class="ti ti-settings" aria-hidden="true"></i><span>Settings</span></button>
     </div>
@@ -182,10 +183,18 @@
         </div>
       </section>
 
+      <!-- FILES -->
+      <section id="tab-files" class="tab-panel" role="tabpanel" hidden>
+        <div class="log-head"><div><h1>Files</h1><p class="sub" id="filesSub">Open an uploaded year to read it here. Nothing on this page can be edited.</p></div></div>
+        <div class="card settings" id="filesList"><p class="sub">Loading…</p></div>
+        <div id="filesViewer"></div>
+      </section>
+
       <!-- UPLOAD -->
       <section id="tab-upload" class="tab-panel" role="tabpanel" hidden>
         <div class="log-head"><div><h1>Upload a year</h1><p class="sub">Upload your Excel tracker (.xlsx). Each year can be uploaded only once and cannot be replaced.</p></div></div>
         <div class="settings-grid">
+          <div class="card settings wide" id="nextYearBox"></div>
           <div class="card settings">
             <h2>New year file</h2>
             <form id="uploadForm">

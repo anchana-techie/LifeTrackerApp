@@ -557,3 +557,15 @@ select option { background: var(--surface); color: var(--ink); }
 .sleep-time input { width: auto; }
 .sleep-card .sub { margin: 0; }
 body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { pointer-events: none; opacity: .6; }
+
+/* files viewer */
+#filesViewer { margin-top: 16px; }
+.files-grid th, .files-grid td { text-align: center; padding: 6px 4px; min-width: 24px; }
+.files-grid th:first-child, .files-grid td.name { text-align: left; position: sticky; left: 0; background: var(--surface); min-width: 130px; padding-left: 8px; }
+.files-grid td.on { color: var(--accent-strong); font-weight: 700; }
+.files-grid td.tot { font-weight: 700; }
+/* next-year builder */
+.task-list { margin-top: 14px; }
+.task-list h3 { margin-bottom: 6px; }
+.task-add { display: flex; gap: 8px; margin-top: 8px; }
+.task-add input { flex: 1; min-width: 0; }

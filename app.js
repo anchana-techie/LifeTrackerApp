@@ -122,6 +122,11 @@ const S = {
   weekCat: 'dos',
   countFns: [],
   view: 'overview',
+  groupMode: false,    // admin 'Everyone' view
+  group: null,
+  memberYears: {},     // admin: uid -> that person's document_link rows
+  gRange: null,
+  gMonths: null,
   range: 'all',
   charts: []
 };
@@ -211,6 +216,8 @@ async function loadSheet({ quiet = false } = {}) {
   const btn = $('#loadBtn');
   btn.disabled = true; btn.textContent = 'Loading…';
   if (!quiet) setLoader(true);
+  S.groupMode = false;
+  $$('.grp').forEach(e => { e.hidden = true; });
   try {
     const data = await api('read');
     data.profile ||= { height: null, waterGoal: null, tumbler: null };
@@ -293,10 +300,11 @@ function switchTab(tab) {
   $$('.nav-btn').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   window.scrollTo(0, 0);
   $$('.tab-panel').forEach(p => { p.hidden = p.id !== 'tab-' + tab; });
-  if (S.data || ['upload', 'admin', 'settings'].includes(tab)) renderTab();
+  if (S.data || S.groupMode || ['upload', 'admin', 'settings'].includes(tab)) renderTab();
 }
 function renderAll() { renderTab(); }
 function renderTab() {
+  if (S.groupMode && ['log', 'buy', 'analysis'].includes(S.tab)) return renderGroupTab(S.tab);
   if (S.tab === 'log') renderLog();
   else if (S.tab === 'buy') renderBuy();
   else if (S.tab === 'analysis') renderAnalysis();
@@ -1782,6 +1790,7 @@ function clearSheet() {
   document.body.classList.remove('readonly');
   $$('[data-empty]').forEach(e => { e.hidden = false; });
   $$('[data-ready]').forEach(e => { e.hidden = true; });
+  $$('.grp').forEach(e => { e.hidden = true; });
   $$('[data-sheet-title]').forEach(e => { e.textContent = 'No sheet loaded'; });
   $('#banner').hidden = true;
   destroyCharts();
@@ -1790,7 +1799,7 @@ function clearSheet() {
 /** Called by Account whenever the signed-in person changes. */
 async function onAuthChange(profile, msg) {
   if (!profile) {
-    Object.assign(S, { user: null, members: [], years: [], year: null, viewUid: null, demo: false, pending: freshPending(), buyDraft: null, buyDirty: false });
+    Object.assign(S, { user: null, members: [], memberYears: {}, groupMode: false, group: null, years: [], year: null, viewUid: null, demo: false, pending: freshPending(), buyDraft: null, buyDirty: false });
     clearSheet();
     setLoader(false);
     showAuth(msg);
@@ -1803,24 +1812,42 @@ async function onAuthChange(profile, msg) {
   $('#accountInfo').textContent =`Signed in as ${profile.userName} (${profile.email})`;
   const admin = profile.role === 'admin';
   $('#navAdmin').hidden = !admin;
-  S.members = [];
-  if (admin) { try { S.members = await Account.listMembers(); } catch (err) { toast(err.message, true); } }
+  $('#navUpload').hidden = admin;   // admins do not upload files for themselves
+  S.members = []; S.memberYears = {};
+  if (admin) {
+    try { S.members = await Account.listMembers(); await loadMemberYears(); } catch (err) { toast(err.message, true); }
+    await enterGroup();
+    switchTab('log');
+    setLoader(false);
+    return;
+  }
   fillUserSelect();
   await refreshYears();
   if (S.year) { await loadSheet(); switchTab('log'); } else { clearSheet(); switchTab('upload'); }
   setLoader(false);
 }
 
+async function loadMemberYears() {
+  const ys = await Promise.all(S.members.map(m => Account.listYears(m.uid)));
+  S.memberYears = Object.fromEntries(S.members.map((m, i) => [m.uid, ys[i]]));
+}
+
 function fillUserSelect() {
   const sel = $('#userSelect'), show = S.user.role === 'admin' && S.members.length > 0;
   sel.hidden = !show; $('#userIcon').hidden = !show;
-  fill(sel, ...S.members.map(m => h('option', { value: m.uid }, m.uid === S.user.uid ? `Me (${m.userName})` : m.userName)));
+  // the admin does not keep a tracker, so only list members who have uploaded something
+  const people = S.members.filter(m => m.uid !== S.user.uid || (S.memberYears[m.uid] || []).length || m.uid === S.viewUid);
+  fill(sel, h('option', { value: 'all' }, 'Everyone'), ...people.map(m => h('option', { value: m.uid }, m.uid === S.user.uid ? `Me (${m.userName})` : m.userName)));
   sel.value = S.viewUid;
 }
 
 /** Loads the year list of whoever is on screen and fills the year picker. */
 async function refreshYears(preferred) {
-  try { S.years = await Account.listYears(S.viewUid); } catch (err) { S.years = []; toast(err.message, true); }
+  try {
+    S.years = S.viewUid === 'all'
+      ? [...new Set(Object.values(S.memberYears).flat().map(r => r.year))].sort().map(year => ({ year }))
+      : await Account.listYears(S.viewUid);
+  } catch (err) { S.years = []; toast(err.message, true); }
   const ys = S.years.map(r => r.year);
   S.year = [preferred, S.year, new Date().getFullYear(), ys[ys.length - 1]].find(y => ys.includes(y)) || null;
   const sel = $('#yearSelect');
@@ -1830,7 +1857,12 @@ async function refreshYears(preferred) {
 }
 
 async function viewPerson(uid) {
-  S.viewUid = uid; S.demo = false;
+  if (uid === 'all') {
+    await enterGroup();
+    switchTab(['log', 'buy', 'analysis'].includes(S.tab) ? S.tab : 'log');
+    return;
+  }
+  S.viewUid = uid; S.demo = false; S.groupMode = false; S.group = null;
   await refreshYears();
   if (!S.year) { clearSheet(); toast('Nothing has been uploaded for this person yet.'); return; }
   await loadSheet();
@@ -1896,7 +1928,9 @@ async function renderAdmin() {
   try {
     const [members, invites] = await Promise.all([Account.listMembers(), Account.listInvites()]);
     const years = await Promise.all(members.map(m => Account.listYears(m.uid)));
-    S.members = members; fillUserSelect();
+    S.members = members;
+    S.memberYears = Object.fromEntries(members.map((m, i) => [m.uid, years[i]]));
+    fillUserSelect();
     const driveHref = l => (/^https:\/\/docs\.google\.com\//.test(l) ? l : null);
     fill(memberBox, ...members.map((m, i) => h('div', { class: 'row member' },
       h('div', { class: 'who' }, h('b', null, m.userName), m.role === 'admin' ? h('span', { class: 'pill' }, 'admin') : null, h('div', { class: 'muted' }, m.email)),
@@ -1924,10 +1958,11 @@ function init() {
     if (S.data && S.tab === 'analysis') renderAnalysis();
   }));
   $$('.seg button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; renderLog(); }));
-  $('#sheetForm').addEventListener('submit', e => { e.preventDefault(); S.demo = false; loadSheet(); });
+  $('#sheetForm').addEventListener('submit', e => { e.preventDefault(); S.demo = false; if (S.groupMode) loadGroup(); else loadSheet(); });
   $('#yearSelect').addEventListener('change', e => {
     if (!confirmDiscard()) { e.target.value = S.year || ''; return; }
-    S.year = Number(e.target.value) || null; S.demo = false; loadSheet();
+    S.year = Number(e.target.value) || null; S.demo = false;
+    if (S.groupMode) loadGroup(); else loadSheet();
   });
   $('#userSelect').addEventListener('change', e => {
     if (!confirmDiscard()) { e.target.value = S.viewUid; return; }

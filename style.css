@@ -505,3 +505,19 @@ body.readonly .buy-row .status .btn, body.readonly .buy-bought-form, body.readon
 /* dropdown lists: the browser draws them on its own background, so set both colours (fixes light-on-white in dark theme) */
 select { color-scheme: light dark; }
 select option { background: var(--surface); color: var(--ink); }
+
+/* ---------- admin: everyone view ---------- */
+.head-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.grp-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; margin-bottom: 18px; }
+.pcard { border-top: 4px solid var(--pc); display: flex; flex-direction: column; gap: 12px; }
+.pc-head { display: flex; align-items: center; gap: 8px; }
+.pc-head b { flex: 1; font-size: 1.02rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pc-head .rank { font-size: .78rem; font-weight: 700; color: var(--ink-3); background: var(--surface-2); border-radius: 999px; padding: 2px 9px; }
+.pdot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: baseline; flex: none; }
+.pc-head .pdot { margin-right: 0; }
+.pc-body { display: flex; gap: 16px; align-items: center; }
+.pc-stats { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.pcard .kv { display: flex; justify-content: space-between; gap: 8px; font-size: .84rem; color: var(--ink-3); }
+.pcard .kv b { color: var(--ink); text-align: right; }
+.pc-foot { display: flex; gap: 6px; flex-wrap: wrap; }
+.pc-foot .pill { margin-left: 0; font-size: .74rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

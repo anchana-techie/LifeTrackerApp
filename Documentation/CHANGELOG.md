@@ -3,6 +3,7 @@
 Newest first. Add a line here with every feature change.
 
 ## 2026-11-02
+- **Added** Admin "Everyone" view (default for admins): Today compares everyone's completion, Buy list compares spending by month, Insights combines the whole group. Pick one person to see their own tracker (read-only). The Upload tab is hidden for admins. Code in `group.js`.
 - **Changed** Loading now covers the whole screen with a spinner instead of dimming the page.
 - **Added** Weight is taken in the morning and at night. Night weight goes in a new `Night Weight (kg)` column of the Weight sheet (created on first save).
 - **Added** BMI from your height with WHO bands (under 18.5, 18.5-24.9, 25-29.9, 30+), a healthy weight range, a coloured warning on Today and in Insights, and a night-vs-morning swing in the Weight insight.

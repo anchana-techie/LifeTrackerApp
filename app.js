@@ -1278,18 +1278,64 @@ function analyzeWeight([start, end]) {
   for (let i = 0; i < all.length - 1; i++) {
     if (diffDays(all[i][0], all[i + 1][0]) === 1 && all[i][0] >= start && all[i][0] <= end) deltas.push({ d: all[i][0], delta: all[i + 1][1] - all[i][1] });
   }
+
+  // morning = before breakfast, night = after dinner:
+  //   gain = morning → same night (what the day adds), drop = night → next morning (what sleep takes off)
+  const nt = iw.night || {};
+  const dow = d => parseKey(d).getDay();
+  const dayRows = pts.filter(([d]) => nt[d] !== undefined).map(([d, m]) => ({ d, gain: nt[d] - m, dow: dow(d) }));
+  const nightRows = Object.keys(nt).filter(d => d >= start && d <= end && iw.entries[addDays(d, 1)] !== undefined).sort()
+    .map(d => ({ d, drop: iw.entries[addDays(d, 1)] - nt[d], dow: dow(d) }));
+  const cycles = dayRows.filter(r => iw.entries[addDays(r.d, 1)] !== undefined)
+    .map(r => { const drop = iw.entries[addDays(r.d, 1)] - nt[r.d]; return { d: r.d, gain: r.gain, drop, net: r.gain + drop }; });
+  const nightPts = Object.keys(nt).filter(d => d >= start && d <= end).sort().map(d => [d, nt[d]]);
+  let nightSlope = null;
+  if (nightPts.length >= 3) {
+    const xs = nightPts.map(p => diffDays(nightPts[0][0], p[0])), ys = nightPts.map(p => p[1]);
+    const mx = mean(xs), my = mean(ys);
+    const den = xs.reduce((s, x) => s + (x - mx) ** 2, 0);
+    nightSlope = den ? xs.reduce((s, x, i) => s + (x - mx) * (ys[i] - my), 0) / den : null;
+  }
+  const rhythm = {
+    pairs: dayRows.length, nights: nightRows.length, cycles,
+    gainAvg: dayRows.length ? mean(dayRows.map(r => r.gain)) : null,
+    dropAvg: nightRows.length ? mean(nightRows.map(r => r.drop)) : null,
+    netAvg: cycles.length ? mean(cycles.map(r => r.net)) : null,
+    nightAvg: nightPts.length ? mean(nightPts.map(p => p[1])) : null,
+    nightSlope, nightN: nightPts.length,
+    maxGain: dayRows.length ? dayRows.reduce((a, b) => (b.gain > a.gain ? b : a)) : null,
+    minGain: dayRows.length ? dayRows.reduce((a, b) => (b.gain < a.gain ? b : a)) : null,
+    morningOnly: pts.filter(([d]) => nt[d] === undefined).length,
+    nightOnly: nightPts.filter(([d]) => iw.entries[d] === undefined).length,
+    byDow: DOW.map((_, i) => ({ gain: mean(dayRows.filter(r => r.dow === i).map(r => r.gain)), drop: mean(nightRows.filter(r => r.dow === i).map(r => r.drop)), n: dayRows.filter(r => r.dow === i).length }))
+  };
+  // share of the day's gain that sleep takes back (only over complete morning → night → morning cycles)
+  const cg = cycles.length ? mean(cycles.map(r => r.gain)) : null;
+  rhythm.recovery = cg !== null && cg > 0.1 ? -mean(cycles.map(r => r.drop)) / cg : null;
+
+  // does doing an item go with a bigger day gain, a bigger overnight drop, or a different next morning?
+  const metrics = {
+    day: dayRows.map(r => ({ d: r.d, v: r.gain })),
+    over: nightRows.map(r => ({ d: r.d, v: r.drop })),
+    next: deltas.map(x => ({ d: x.d, v: x.delta }))
+  };
   const effects = [];
   for (const k of ['dos', 'habits']) {
     const ix = S.idx[k];
     if (!ix) continue;
     for (const name of ix.items) {
-      const on = deltas.filter(x => ix.loggedDays.has(x.d) && ix.sets[name].has(x.d)).map(x => x.delta);
-      const off = deltas.filter(x => ix.loggedDays.has(x.d) && !ix.sets[name].has(x.d)).map(x => x.delta);
-      if (on.length >= 3 && off.length >= 3) effects.push({ name, sheet: k, on: mean(on), off: mean(off), diff: mean(on) - mean(off), n: on.length + off.length });
+      const e = { name, sheet: k };
+      let best = 0;
+      for (const [mk, rows] of Object.entries(metrics)) {
+        const on = rows.filter(x => ix.loggedDays.has(x.d) && ix.sets[name].has(x.d)).map(x => x.v);
+        const off = rows.filter(x => ix.loggedDays.has(x.d) && !ix.sets[name].has(x.d)).map(x => x.v);
+        if (on.length >= 3 && off.length >= 3) { e[mk] = { on: mean(on), off: mean(off), diff: mean(on) - mean(off) }; best = Math.max(best, Math.abs(e[mk].diff)); }
+      }
+      if (best) { e.best = best; effects.push(e); }
     }
   }
-  effects.sort((a, b) => a.diff - b.diff);
-  return { n: pts.length, pts, all, first, latest, minP, maxP, avg: mean(ws), slope, ma7, span, deltas, effects };
+  effects.sort((a, b) => b.best - a.best);
+  return { n: pts.length, pts, all, first, latest, minP, maxP, avg: mean(ws), slope, ma7, span, deltas, effects, rhythm, nightPts };
 }
 
 /* ---------- spending ---------- */
@@ -1503,7 +1549,6 @@ function viewGrid(k, win, body) {
     data: {
       labels: A.logged.map(d => fmt(d)), datasets: [
         { label: 'Daily', data: pctScore, borderColor: css('--line'), backgroundColor: css('--ink-3'), borderWidth: 1, pointRadius: 3 },
-        { label: 'Night', data: W.pts.map(p => night[p[0]] ?? null), borderColor: 'transparent', backgroundColor: css('--water'), pointRadius: 3 },
         { label: '7-day average', data: rolling(pctScore, 7).map(v => v === null ? null : Math.round(v)), borderColor: css('--accent'), backgroundColor: css('--accent'), borderWidth: 2, pointRadius: 0, tension: .3 }
       ]
     },
@@ -1671,48 +1716,112 @@ function viewWeight(win, body) {
   const W = analyzeWeight(win);
   if (!W) { body.append(h('p', { class: 'empty' }, 'No weight sheet found.')); return; }
   if (!W.n) { body.append(h('p', { class: 'empty' }, `No weigh-ins logged for ${windowLabel(win)}. Add one from “Log a day”.`)); return; }
+  const R = W.rhythm;
   const change = W.latest[1] - W.first[1];
   const cm = S.data.profile?.height, bmi = cm ? bmiInfo(W.latest[1], cm) : null;
-  const night = S.idx.weight.night;
-  const pairs = Object.keys(night).filter(d => d >= win[0] && d <= win[1] && S.idx.weight.entries[d] !== undefined);
-  const swing = pairs.length ? mean(pairs.map(d => night[d] - S.idx.weight.entries[d])) : null;
+  const g = v => `${v >= 0 ? '+' : ''}${(v * 1000).toFixed(0)} g`;
+  const lastNight = W.nightPts[W.nightPts.length - 1];
   if (bmi && bmi.cls !== 'good') body.append(h('div', { class: 'bmi ' + bmi.cls, style: 'margin:0 0 16px' }, icon(bmi.ico), h('div', null, h('b', null, `BMI ${bmi.bmi.toFixed(1)} · ${bmi.label}`), h('p', { class: 'sub' }, `${bmi.advice} Healthy range for ${cm} cm: ${bmi.lo}–${bmi.hi} kg.`))));
   body.append(h('div', { class: 'tiles' },
-    tile('Latest', `${W.latest[1]} kg`, fmt(W.latest[0])),
-    tile('Change', `${change >= 0 ? '+' : ''}${change.toFixed(1)} kg`, `since ${fmt(W.first[0])}`, change < 0 ? 'up' : change > 0 ? 'down' : ''),
-    tile('Weekly trend', W.slope !== null ? `${W.slope * 7 >= 0 ? '+' : ''}${(W.slope * 7).toFixed(2)} kg` : '—', W.slope !== null ? 'per week (best-fit line)' : 'Needs 3+ weigh-ins'),
+    tile('Latest morning', `${W.latest[1]} kg`, `before breakfast · ${fmt(W.latest[0])}`),
+    lastNight ? tile('Latest night', `${lastNight[1]} kg`, `after dinner · ${fmt(lastNight[0])}`) : null,
+    tile('Change', `${change >= 0 ? '+' : ''}${change.toFixed(1)} kg`, `morning to morning since ${fmt(W.first[0])}`, change < 0 ? 'up' : change > 0 ? 'down' : ''),
+    tile('Weekly trend', W.slope !== null ? `${W.slope * 7 >= 0 ? '+' : ''}${(W.slope * 7).toFixed(2)} kg` : '—', W.slope !== null ? 'per week, from mornings' : 'Needs 3+ morning weigh-ins'),
+    tile('Day gain', R.gainAvg !== null ? g(R.gainAvg) : '—', R.pairs ? `morning → night, avg of ${plural(R.pairs, 'day')}` : 'Needs a morning and a night weigh-in on one day'),
+    tile('Overnight', R.dropAvg !== null ? g(R.dropAvg) : '—', R.nights ? `night → next morning, avg of ${plural(R.nights, 'night')}` : 'Needs a night and the next morning'),
+    tile('Net per day', R.netAvg !== null ? g(R.netAvg) : '—', R.cycles.length ? `morning → next morning, ${plural(R.cycles.length, 'full day')}` : 'Needs a full morning → night → morning', R.netAvg === null ? '' : R.netAvg <= 0 ? 'up' : 'down'),
     tile('Range', `${W.minP[1]}–${W.maxP[1]} kg`, `low ${fmt(W.minP[0])} · high ${fmt(W.maxP[0])}`),
-    tile('Weigh-ins', W.n, `${pct(W.n / W.span)} of days since the first one`),
     bmi ? tile('BMI', bmi.bmi.toFixed(1), `${bmi.label} · healthy ${bmi.lo}–${bmi.hi} kg`, bmi.cls === 'good' ? 'up' : 'down') : null,
-    swing !== null ? tile('Day swing', `${swing >= 0 ? '+' : ''}${(swing * 1000).toFixed(0)} g`, `night vs morning, avg of ${plural(pairs.length, 'day')}`) : null,
     W.slope !== null && W.n >= 5 ? tile('In 30 days, at this pace', `${(W.latest[1] + W.slope * 30).toFixed(1)} kg`, 'Rough projection') : null
   ));
+
+  // what the data says
+  const ins = [];
+  if (R.gainAvg !== null) {
+    ins.push(['⚖️', `Over the day (breakfast to after dinner) you ${R.gainAvg >= 0 ? 'gain' : 'lose'} about ${(Math.abs(R.gainAvg) * 1000).toFixed(0)} g${R.pairs >= 2 ? `, ranging from ${g(R.minGain.gain)} on ${fmt(R.minGain.d)} to ${g(R.maxGain.gain)} on ${fmt(R.maxGain.d)}` : ''}. That is mostly food, drink and water, not fat.`]);
+  }
+  if (R.dropAvg !== null) {
+    ins.push(R.dropAvg < 0
+      ? ['📉', `Overnight you lose about ${(-R.dropAvg * 1000).toFixed(0)} g (breathing, sweat, digestion).`]
+      : ['🔺', `You weigh about ${(R.dropAvg * 1000).toFixed(0)} g more in the morning than the night before. Late or salty dinners can do this.`]);
+  }
+  if (R.recovery !== null) {
+    const pc = Math.round(R.recovery * 100);
+    ins.push(pc >= 90 ? ['✅', `Sleep takes back ${pc}% of the day’s gain, so your morning weight is a steady baseline.`]
+      : pc >= 0 ? ['🔺', `Sleep takes back only ${pc}% of the day’s gain. The rest carries into the next morning (${g(R.netAvg)} a day on average).`]
+      : ['🔺', 'Your morning weight is usually higher than the night before, so the gain keeps building day to day.']);
+  } else if (R.netAvg !== null) {
+    ins.push(R.netAvg > 0.05 ? ['🔺', `Each full day leaves you ${g(R.netAvg)} heavier by the next morning.`] : R.netAvg < -0.05 ? ['📉', `Each full day leaves you ${g(R.netAvg)} lighter by the next morning.`] : ['✅', 'A full day nets out to about zero by the next morning.']);
+  }
+  if (R.nightSlope !== null && W.slope !== null) {
+    const nw = R.nightSlope * 7, mw = W.slope * 7, sgn = v => (v >= 0 ? '+' : '') + v.toFixed(2);
+    ins.push(Math.abs(nw - mw) < 0.1 ? ['✨', `Mornings (${sgn(mw)} kg/week) and nights (${sgn(nw)} kg/week) are moving together, so the trend is real, not water noise.`]
+      : ['ℹ️', `Mornings are trending ${sgn(mw)} kg/week but nights ${sgn(nw)} kg/week. They disagree, so wait for more days before trusting either.`]);
+  }
+  const dw = R.byDow.map((x, i) => [x, i]).filter(([x]) => x.n >= 2 && x.gain !== null);
+  if (dw.length >= 3) {
+    const hi = dw.reduce((a, b) => (b[0].gain > a[0].gain ? b : a)), lo = dw.reduce((a, b) => (b[0].gain < a[0].gain ? b : a));
+    if (hi[0].gain - lo[0].gain >= 0.3) ins.push(['📅', `${DOW[hi[1]]} is your heaviest day (${g(hi[0].gain)} avg) and ${DOW[lo[1]]} the lightest (${g(lo[0].gain)}).`]);
+  }
+  if (R.morningOnly && R.nightN) ins.push(['📝', `${plural(R.morningOnly, 'morning')} in this period ${R.morningOnly === 1 ? 'has' : 'have'} no night weigh-in. Log both to make the day-gain numbers more reliable.`]);
+  if (!R.nightN) ins.push(['📝', 'No night weigh-ins yet. Add one after dinner to see day gain, overnight loss and how much of it you keep.']);
+  if (R.pairs && R.pairs < 5) ins.push(['ℹ️', `Based on ${plural(R.pairs, 'day')} of paired weigh-ins so far. Patterns firm up after 1–2 weeks.`]);
+  if (ins.length) body.append(h('div', { class: 'card', style: 'margin-bottom:16px' }, h('h2', null, 'What your weigh-ins say'), h('p', { class: 'sub' }, 'Morning is before breakfast, night is after dinner.'), h('div', { style: 'margin-top:10px' }, insightList(ins))));
+
   const cv = h('canvas');
-  body.append(h('div', { class: 'card', style: 'margin-bottom:16px' }, h('h2', null, 'Weight over time'), h('p', { class: 'sub' }, 'Each weigh-in, with a 7-day average to smooth daily water swings'), h('div', { class: 'chart-box tall' }, cv)));
-  const lo = Math.floor(Math.min(...W.pts.map(p => p[1])) - 1), hi = Math.ceil(Math.max(...W.pts.map(p => p[1])) + 1);
+  body.append(h('div', { class: 'card', style: 'margin-bottom:16px' }, h('h2', null, 'Weight over time'), h('p', { class: 'sub' }, 'Morning and night weigh-ins, with a 7-day average of mornings to smooth daily water swings'), h('div', { class: 'chart-box tall' }, cv)));
+  // one x-axis of every date that has either weigh-in
+  const morn = Object.fromEntries(W.pts), nightMap = Object.fromEntries(W.nightPts);
+  const dates = [...new Set([...W.pts.map(p => p[0]), ...W.nightPts.map(p => p[0])])].sort();
+  const ma = Object.fromEntries(W.pts.map((p, i) => [p[0], +W.ma7[i].toFixed(2)]));
+  const allKg = [...W.pts.map(p => p[1]), ...W.nightPts.map(p => p[1])];
+  const lo = Math.floor(Math.min(...allKg) - 1), hi = Math.ceil(Math.max(...allKg) + 1);
   chart(cv, {
     type: 'line',
     data: {
-      labels: W.pts.map(p => fmt(p[0])), datasets: [
-        { label: 'Morning', data: W.pts.map(p => p[1]), borderColor: css('--line'), backgroundColor: css('--ink-3'), borderWidth: 1, pointRadius: 3 },
-        { label: '7-day average', data: W.ma7.map(v => +v.toFixed(2)), borderColor: css('--accent'), backgroundColor: css('--accent'), borderWidth: 2, pointRadius: 0, tension: .3 }
+      labels: dates.map(d => fmt(d)), datasets: [
+        { label: 'Morning', data: dates.map(d => morn[d] ?? null), borderColor: css('--line'), backgroundColor: css('--ink-3'), borderWidth: 1, pointRadius: 3, spanGaps: true },
+        ...(W.nightPts.length ? [{ label: 'Night', data: dates.map(d => nightMap[d] ?? null), borderColor: css('--line'), backgroundColor: css('--water'), borderWidth: 1, borderDash: [4, 4], pointRadius: 3, spanGaps: true }] : []),
+        { label: '7-day average', data: dates.map(d => ma[d] ?? null), borderColor: css('--accent'), backgroundColor: css('--accent'), borderWidth: 2, pointRadius: 0, tension: .3, spanGaps: true }
       ]
     },
     options: { scales: { y: { min: lo, max: hi, ticks: { callback: v => v + ' kg' } }, x: { grid: { display: false } } } }
   });
 
-  const card = h('div', { class: 'card' }, h('h2', null, 'What moves your weight'), h('p', { class: 'sub' }, 'Average change by the next morning, on days you did each item vs days you didn’t. Needs back-to-back weigh-ins.'));
+  if (R.pairs || R.nights) {
+    const c1 = h('canvas'), c2 = h('canvas');
+    body.append(h('div', { class: 'grid-2', style: 'margin-bottom:16px' },
+      h('div', { class: 'card' }, h('h2', null, 'Day gain and overnight change'), h('p', { class: 'sub' }, 'Up: what the day added. Down: what sleep took off'), h('div', { class: 'chart-box' }, c1)),
+      h('div', { class: 'card' }, h('h2', null, 'By day of the week'), h('p', { class: 'sub' }, 'Average day gain, on days with both weigh-ins'), h('div', { class: 'chart-box' }, c2))
+    ));
+    const gainBy = Object.fromEntries(W.pts.filter(([d]) => nightMap[d] !== undefined).map(([d, m]) => [d, nightMap[d] - m]));
+    const dropBy = Object.fromEntries(W.nightPts.filter(([d]) => morn[addDays(d, 1)] !== undefined || S.idx.weight.entries[addDays(d, 1)] !== undefined).map(([d, n]) => [d, S.idx.weight.entries[addDays(d, 1)] - n]));
+    const ds = [...new Set([...Object.keys(gainBy), ...Object.keys(dropBy)])].sort();
+    chart(c1, {
+      type: 'bar',
+      data: { labels: ds.map(d => fmt(d)), datasets: [
+        { label: 'Day gain', data: ds.map(d => gainBy[d] === undefined ? null : Math.round(gainBy[d] * 1000)), backgroundColor: css('--orange'), borderRadius: 4, maxBarThickness: 28 },
+        { label: 'Overnight', data: ds.map(d => dropBy[d] === undefined ? null : Math.round(dropBy[d] * 1000)), backgroundColor: css('--water'), borderRadius: 4, maxBarThickness: 28 }
+      ] },
+      options: { scales: { y: { ticks: { callback: v => v + ' g' } }, x: { grid: { display: false } } } }
+    });
+    const order = [1, 2, 3, 4, 5, 6, 0];
+    chart(c2, {
+      type: 'bar',
+      data: { labels: order.map(i => DOW[i]), datasets: [{ label: 'Day gain', data: order.map(i => R.byDow[i].gain === null ? null : Math.round(R.byDow[i].gain * 1000)), backgroundColor: css('--accent'), borderRadius: 4, maxBarThickness: 36 }] },
+      options: { plugins: { legend: { display: false } }, scales: { y: { ticks: { callback: v => v + ' g' } }, x: { grid: { display: false } } } }
+    });
+  }
+
+  const card = h('div', { class: 'card' }, h('h2', null, 'What moves your weight'), h('p', { class: 'sub' }, 'Average on days you did each item vs days you didn’t: how much the day adds, how much sleep takes off, and the change by next morning.'));
   if (W.effects.length) {
-    const show = [...W.effects.slice(0, 5), ...W.effects.slice(-5).reverse()].filter((v, i, a) => a.indexOf(v) === i);
+    const cell = m => (m ? h('span', { class: 'tag ' + (m.diff < -0.05 ? 'good' : m.diff > 0.05 ? 'bad' : '') }, `${m.diff >= 0 ? '+' : ''}${(m.diff * 1000).toFixed(0)} g`) : '—');
     card.append(h('div', { class: 'table-wrap', style: 'margin-top:10px' }, h('table', { class: 'table' },
-      h('thead', null, h('tr', null, ['Item', 'Next day when done', 'When not done', 'Difference'].map(x => h('th', null, x)))),
-      h('tbody', null, show.map(e => h('tr', null, h('td', { class: 'name' }, e.name),
-        h('td', null, `${e.on >= 0 ? '+' : ''}${(e.on * 1000).toFixed(0)} g`),
-        h('td', null, `${e.off >= 0 ? '+' : ''}${(e.off * 1000).toFixed(0)} g`),
-        h('td', null, h('span', { class: 'tag ' + (e.diff < -0.05 ? 'good' : e.diff > 0.05 ? 'bad' : '') }, `${e.diff >= 0 ? '+' : ''}${(e.diff * 1000).toFixed(0)} g`))))))));
-    card.append(h('p', { class: 'hint' }, `Based on ${plural(W.deltas.length, 'pair')} of consecutive-day weigh-ins. These are associations, not proof — more data makes them more trustworthy.`));
+      h('thead', null, h('tr', null, ['Item', 'Day gain', 'Overnight', 'Next morning'].map(x => h('th', null, x)))),
+      h('tbody', null, W.effects.slice(0, 10).map(e => h('tr', null, h('td', { class: 'name' }, e.name), h('td', null, cell(e.day)), h('td', null, cell(e.over)), h('td', null, cell(e.next))))))));
+    card.append(h('p', { class: 'hint' }, `Each cell is the difference on days you did the item. Green is lighter, red is heavier. Based on ${plural(R.pairs, 'paired day')} and ${plural(W.deltas.length, 'consecutive-morning pair')}. These are associations, not proof; more data makes them more trustworthy.`));
   } else {
-    card.append(h('p', { class: 'muted', style: 'margin-top:10px' }, `Not enough back-to-back weigh-ins yet (${W.deltas.length} pairs). Weigh in daily for 1–2 weeks to unlock this.`));
+    card.append(h('p', { class: 'muted', style: 'margin-top:10px' }, `Not enough data yet (${plural(R.pairs, 'paired day')}, ${plural(W.deltas.length, 'consecutive-morning pair')}). Each item needs 3 days done and 3 days not done. Weigh in morning and night for 1–2 weeks to unlock this.`));
   }
   body.append(card);
 }

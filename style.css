@@ -231,7 +231,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 22px 32px 120px; }
 .water-custom input { width: 92px; }
 .water-log { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
 .water-log .tag { background: var(--water-soft); color: var(--water); }
-body.readonly .water-actions { pointer-events: none; opacity: .6; }
+
 
 /* setup dialog + chips */
 .modal { border: 0; padding: 0; background: none; color: var(--ink); max-width: min(440px, calc(100vw - 24px)); width: 100%; }
@@ -488,6 +488,11 @@ body.readonly .water-actions { pointer-events: none; opacity: .6; }
 /* ---------- read-only (admin viewing someone else) ---------- */
 body.readonly .savebar { display: none !important; }
 body.readonly #logBody, body.readonly #buyRows, body.readonly #addBuyRow, body.readonly #saveBuyBtn, body.readonly #budgetInput { pointer-events: none; opacity: .75; }
+
+/* read-only: hide every control that would change data */
+body.readonly .water-actions, body.readonly .search-row form, body.readonly .water-card .btn,
+body.readonly #addBuyRow, body.readonly #saveBuyBtn, body.readonly #buyDirty, body.readonly .buy-row .remove,
+body.readonly .buy-row .status .btn, body.readonly .buy-bought-form, body.readonly .bmi .linkbtn { display: none !important; }
 
 /* ---------- greeting bar ---------- */
 .hello { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 32px 0; max-width: 1180px; margin: 0 auto; }

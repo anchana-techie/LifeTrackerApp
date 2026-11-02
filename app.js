@@ -278,7 +278,7 @@ function showBanner() {
   } else if (S.readOnly) {
     const who = S.members.find(m => m.uid === S.viewUid)?.userName || 'this person';
     b.className = 'banner info'; b.hidden = false;
-    b.textContent = `Viewing ${who}'s ${S.year} tracker — read-only.`;
+    b.textContent = `Viewing ${who}'s ${S.year} tracker.`;
   } else if (missing.length) {
     b.className = 'banner'; b.hidden = false;
     b.textContent = 'Some sheets were not found in this file: ' + missing.join(', ') + '. Those sections are hidden.';
@@ -733,7 +733,7 @@ function renderProfileBox() {
   if (!S.data) { fill(box, h('p', { class: 'sub' }, 'Load your sheet to edit these.')); return; }
   if (S.readOnly) {
     const p = S.data.profile;
-    fill(box, h('p', { class: 'sub' }, `Height ${p.height || '—'} cm · Goal ${p.waterGoal || '—'} ml · Tumbler ${p.tumbler || '—'} ml (read-only)`));
+    fill(box, h('p', { class: 'sub' }, `Height ${p.height || '—'} cm · Goal ${p.waterGoal || '—'} ml · Tumbler ${p.tumbler || '—'} ml`));
     return;
   }
   fill(box, profileForm(() => { renderProfileBox(); if (S.tab === 'log') renderLog(); }));

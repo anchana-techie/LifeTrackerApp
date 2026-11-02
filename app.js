@@ -2085,7 +2085,7 @@ function clearSheet() {
 /** Called by Account whenever the signed-in person changes. */
 async function onAuthChange(profile, msg) {
   if (!profile) {
-    Object.assign(S, { user: null, members: [], memberYears: {}, groupMode: false, group: null, years: [], year: null, viewUid: null, demo: false, files: null, nextYear: null, pending: freshPending(), buyDraft: null, buyDirty: false });
+    Object.assign(S, { user: null, members: [], memberYears: {}, groupMode: false, group: null, years: [], year: null, viewUid: null, demo: false, files: null, fileCache: {}, nextYear: null, pending: freshPending(), buyDraft: null, buyDirty: false });
     clearSheet();
     setLoader(false);
     showAuth(msg);
@@ -2195,6 +2195,7 @@ async function renderUpload() {
 const FILE_SHEETS = [['dos', 'Daily Dos'], ['habits', 'Habits'], ['products', 'Products'], ['period', 'Period'], ['weight', 'Weight'], ['buy', 'Month list'], ['sleep', 'Sleep'], ['water', 'Water']];
 
 async function renderFiles() {
+  S.fileCache = {};
   const list = $('#filesList');
   if (S.demo) { fill(list, h('p', { class: 'sub' }, 'Files are not available in demo mode.')); fill($('#filesViewer')); return; }
   const admin = S.user.role === 'admin';
@@ -2216,13 +2217,20 @@ async function openFile(person, year) {
   const prev = S.files;
   S.files = { uid: person.uid, name: person.userName, gender: person.gender, year, data: null, sheet: prev?.sheet || 'dos', month: null };
   $$('#filesList .chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.file === person.uid + '_' + year)));
-  fill($('#filesViewer'), h('p', { class: 'sub' }, `Loading ${year}…`));
+  const key = person.uid + '_' + year;
+  // the year already on screen, or one opened a moment ago, needs no second trip to Google
+  const loaded = !S.groupMode && S.data && person.uid === S.viewUid && year === S.year ? S.data : S.fileCache[key];
+  if (loaded) { S.files.data = loaded; renderFileViewer(); return; }
+  fill($('#filesViewer'), h('p', { class: 'sub' }, `Loading ${year}. Reading it from Google Sheets can take several seconds…`));
+  setLoader(true);
   try {
     const data = await api('read', { year, asUid: person.uid === S.user.uid ? undefined : person.uid });
+    S.fileCache[key] = data;
     if (S.files?.uid !== person.uid || S.files.year !== year) return;   // another file was opened meanwhile
     S.files.data = data;
     renderFileViewer();
   } catch (err) { S.files = null; fill($('#filesViewer'), h('p', { class: 'sub err' }, err.message)); }
+  finally { setLoader(false); }
 }
 
 /** the sheets of the open file that have something to show, in tab order */

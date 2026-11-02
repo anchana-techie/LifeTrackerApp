@@ -115,7 +115,7 @@ const Account = (() => {
       try {
         const snap = await db.collection('notices').where('userId', '==', uid).get();
         return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.year - b.year);
-      } catch (e) { return []; }
+      } catch (e) { console.warn('Could not read notices (are the Firestore rules published?)', e.code || e); return []; }
     },
     async clearNotices(ids) {
       try { await Promise.all(ids.map(id => db.doc(`notices/${id}`).delete())); } catch (e) { /* shown again next time */ }

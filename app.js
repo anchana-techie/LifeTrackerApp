@@ -1944,16 +1944,33 @@ async function doAdminUpload(e) {
   try {
     // no client-side duplicate check: the server knows whether the Drive file still exists
     st.textContent = 'Uploading and converting to Google Sheets — this can take up to a minute…';
-    await api('upload', { year, asUid: uid, data: await fileToBase64(file) });
+    const res = await api('upload', { year, asUid: uid, data: await fileToBase64(file) });
     e.target.reset(); st.textContent = '';
-    toast(`${year} uploaded for ${member.userName}`);
+    toast(res?.noticeError ? `${year} uploaded, but ${member.userName} will not get a notice: ${res.noticeError}` : `${year} uploaded for ${member.userName}`, !!res?.noticeError);
     renderAdmin();
   } catch (err) { problem(err.message); }
   finally { btn.disabled = false; }
 }
 
+/** In-app confirm dialog (instead of the browser's). Resolves true on OK, false on Cancel / Esc / backdrop click. */
+function askConfirm(title, message, okLabel = 'OK') {
+  return new Promise(resolve => {
+    const done = v => { overlay.remove(); document.removeEventListener('keydown', onKey); resolve(v); };
+    const onKey = e => { if (e.key === 'Escape') done(false); };
+    const ok = h('button', { class: 'btn primary', onclick: () => done(true) }, okLabel);
+    const overlay = h('div', { class: 'modal-overlay', role: 'dialog', 'aria-modal': 'true', onclick: e => { if (e.target === overlay) done(false); } },
+      h('div', { class: 'card modal' },
+        h('h2', null, title),
+        h('p', null, message),
+        h('div', { class: 'row-actions' }, h('button', { class: 'btn ghost', onclick: () => done(false) }, 'Cancel'), ok)));
+    document.addEventListener('keydown', onKey);
+    document.body.append(overlay);
+    ok.focus();
+  });
+}
+
 async function removeYear(member, year) {
-  if (!confirm(`Remove ${year} for ${member.userName}?\n\nTheir Google Sheet stays in Drive, but they will be able to upload ${year} again.`)) return;
+  if (!await askConfirm(`Remove ${year}?`, `${member.userName}'s ${year} file will be unlinked. You can then upload ${year} again, and the new file replaces the old one in Drive.`, 'Remove')) return;
   try {
     await Account.removeLink(member.uid, year);
     toast('Removed');

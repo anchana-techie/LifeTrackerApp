@@ -261,6 +261,12 @@ function upload_(auth, req) {
   if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4B) throw new Error('Please upload an Excel .xlsx file.');
 
   var folder = userFolder_(member.userName);
+  // a removed year leaves its old sheet behind; bin it so the new upload replaces it rather than sitting beside it
+  var stale = folder.getFilesByName(String(year));
+  while (stale.hasNext()) {
+    var f = stale.next();
+    if (f.getMimeType() === 'application/vnd.google-apps.spreadsheet') f.setTrashed(true);
+  }
   var blob = Utilities.newBlob(bytes, XLSX_MIME, String(year) + '.xlsx');
   var created = Drive.Files.create({
     name: String(year), mimeType: 'application/vnd.google-apps.spreadsheet', parents: [folder.getId()]
@@ -279,6 +285,7 @@ function upload_(auth, req) {
       uploadedAt: { timestampValue: new Date().toISOString() }
     };
     fsCreate_('document_link', linkId, fields);
+    var noticeError = '';
     if (uploadedBy) {
       // the member sees this once at next sign-in, then the app deletes it; a failure here must not undo the upload
       try {
@@ -288,9 +295,9 @@ function upload_(auth, req) {
           by: { stringValue: uploadedBy },
           createdAt: { timestampValue: new Date().toISOString() }
         });
-      } catch (err) { /* notice is a nicety */ }
+      } catch (err) { noticeError = String(err.message || err); }
     }
-    return { year: year, link: link };
+    return { year: year, link: link, noticeError: noticeError };
   } catch (err) {
     DriveApp.getFileById(created.id).setTrashed(true);   // do not leave an orphan file behind
     throw err;

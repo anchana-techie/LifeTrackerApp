@@ -2,7 +2,7 @@
  * the Firebase web config is meant to be public — Firestore rules protect the data. */
 window.APP_CONFIG = {
   // Apps Script web app URL (ends in /exec)
-  scriptUrl: 'https://script.google.com/macros/s/AKfycbxAo4BXk0_pmsUajilkJnw4PyWVc2jVxmJPyRGYXB0xrcErtcrSU6GHTe23mMHMyxnR3g/exec',
+  scriptUrl: 'https://script.google.com/macros/s/AKfycbzaCG0jmM1z5eGQYvXgwdSLKfAHPL0ZJgMWrX_ndlNA5QuhAJhqvdS9g5lYR3ZwJoRH3g/exec',
   // Firebase console -> Project settings -> Your apps -> Web app -> SDK config
   firebase: {
     apiKey: 'AIzaSyCIN742pmwAjX6LoOghzF3qCuJf9ffkc2o',

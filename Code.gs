@@ -43,13 +43,15 @@ function doPost(e) {
     var auth = authenticate_(req.idToken);
     if (req.action === 'ping') return json_({ ok: true, data: { uid: auth.uid } });
 
+    // An upload only creates a brand-new file, so it skips the lock: it takes the longest by far
+    // and would otherwise make every other request (and the next upload) wait behind it.
+    if (req.action === 'upload') return json_({ ok: true, data: upload_(auth, req) });
+
     var lock = LockService.getScriptLock();
     lock.waitLock(20000);
     try {
       var result;
-      if (req.action === 'upload') {
-        result = upload_(auth, req);
-      } else {
+      {
         var target = resolveFile_(auth, req);
         if (target.readOnly && req.action !== 'read') throw new Error('This is a read-only view.');
         var ss = SpreadsheetApp.openById(target.fileId);
@@ -62,6 +64,7 @@ function doPost(e) {
           case 'saveProfile':  result = saveProfile_(ss, req); break;
           case 'addWater':     result = addWater_(ss, req); break;
           case 'undoWater':    result = undoWater_(ss, req); break;
+          case 'setSleep':     result = setSleep_(ss, req); break;
           default: throw new Error('Unknown action: ' + req.action);
         }
         SpreadsheetApp.flush();
@@ -127,6 +130,25 @@ function fsGet_(path, token) {
   if (code === 401 || code === 403) throw new Error('You do not have access to that.');
   if (code !== 200) throw new Error('Database error (' + code + ').');
   return JSON.parse(res.getContentText());
+}
+
+/** Several fsGet_ calls in parallel. A null path gives a null slot; results line up with the input. */
+function fsGetMany_(paths, token) {
+  var reqs = [], idx = [];
+  paths.forEach(function (p, i) {
+    if (!p) return;
+    reqs.push({ url: fsBase_() + p, headers: { Authorization: 'Bearer ' + token }, muteHttpExceptions: true });
+    idx.push(i);
+  });
+  var out = paths.map(function () { return null; });
+  UrlFetchApp.fetchAll(reqs).forEach(function (res, k) {
+    var code = res.getResponseCode();
+    if (code === 404) return;
+    if (code === 401 || code === 403) throw new Error('You do not have access to that.');
+    if (code !== 200) throw new Error('Database error (' + code + ').');
+    out[idx[k]] = JSON.parse(res.getContentText());
+  });
+  return out;
 }
 
 /**
@@ -234,21 +256,24 @@ function detectYear_(ss) {
 /** req: { year, data: base64 of the .xlsx, asUid? } — asUid lets an admin upload on someone's behalf */
 function upload_(auth, req) {
   var year = parseYear_(req.year);
-  var member = getMember_(auth);
-  var targetUid = auth.uid, uploadedBy = '';
-  if (req.asUid && String(req.asUid) !== auth.uid) {
+  var asOther = !!req.asUid && String(req.asUid) !== auth.uid;
+  var targetUid = asOther ? String(req.asUid) : auth.uid, uploadedBy = '';
+  if (asOther && !/^[A-Za-z0-9]{10,40}$/.test(targetUid)) throw new Error('Bad user.');
+  var linkId = targetUid + '_' + year;
+
+  // the three lookups are independent, so fetch them together instead of one after another
+  var docs = fsGetMany_(['members/' + auth.uid, asOther ? 'members/' + targetUid : null, 'document_link/' + linkId], auth.token);
+  if (!docs[0]) throw new Error('Your account is not set up. Please sign out and register again.');
+  var member = { userName: fsStr_(docs[0], 'userName'), role: fsStr_(docs[0], 'role') };
+  if (asOther) {
     if (member.role !== 'admin') throw new Error('You do not have access to that.');
-    targetUid = String(req.asUid);
-    if (!/^[A-Za-z0-9]{10,40}$/.test(targetUid)) throw new Error('Bad user.');
-    var tdoc = fsGet_('members/' + targetUid, auth.token);
-    if (!tdoc) throw new Error('That person was not found.');
+    if (!docs[1]) throw new Error('That person was not found.');
     uploadedBy = member.userName;
-    member = { userName: fsStr_(tdoc, 'userName'), role: fsStr_(tdoc, 'role') };
+    member = { userName: fsStr_(docs[1], 'userName'), role: fsStr_(docs[1], 'role') };
   } else if (member.role === 'admin') {
     throw new Error('Choose the person to upload for.');   // admins do not keep a tracker of their own
   }
-  var linkId = targetUid + '_' + year;
-  var existing = fsGet_('document_link/' + linkId, auth.token);
+  var existing = docs[2];
   if (existing) {
     if (!linkIsStale_(existing)) throw new Error(year + ' has already been uploaded and cannot be replaced.');
     fsDelete_('document_link/' + linkId);   // the Drive file was deleted, so free the year up again
@@ -601,6 +626,59 @@ function undoWater_(ss, req) {
   return writeWater_(sh, r.row, date, readProfile_(ss).waterGoal, r.log);
 }
 
+// ---------- sleep log: Date | Wake up | Sleep (HH:mm text) ----------
+
+var SLEEP_SHEET = 'Sleep Log';
+
+function timeText_(v, tz) {
+  if (isDate_(v)) return Utilities.formatDate(v, tz, 'HH:mm');
+  var s = String(v == null ? '' : v).trim();
+  return /^\d{1,2}:\d{2}$/.test(s) ? (s.length === 4 ? '0' + s : s) : '';
+}
+
+function readSleep_(ss, tz) {
+  var out = { days: {} };
+  var sh = ss.getSheetByName(SLEEP_SHEET);
+  if (!sh) return out;
+  var values = sh.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    var k = waterDateKey_(values[r][0], tz);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) continue;
+    out.days[k] = { wake: timeText_(values[r][1], tz), sleep: timeText_(values[r][2], tz) };
+  }
+  return out;
+}
+
+/** req: { date, kind:'wake'|'sleep', time:'HH:mm' | '' (clears it) } */
+function setSleep_(ss, req) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var date = String(req.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Invalid date.');
+  if (req.kind !== 'wake' && req.kind !== 'sleep') throw new Error('Unknown sleep entry.');
+  var time = String(req.time == null ? '' : req.time);
+  if (time !== '' && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error('Invalid time.');
+
+  var sh = ss.getSheetByName(SLEEP_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(SLEEP_SHEET);
+    sh.getRange(1, 1, 1, 3).setValues([['Date', 'Wake up', 'Sleep']])
+      .setFontWeight('bold').setFontColor('#ffffff').setBackground('#2F5496');
+    sh.getRange('A:C').setNumberFormat('@');
+    sh.setColumnWidth(1, 100); sh.setColumnWidth(2, 90); sh.setColumnWidth(3, 90);
+    sh.setFrozenRows(1);
+  }
+  var values = sh.getDataRange().getValues(), row = -1;
+  for (var r = 1; r < values.length; r++) {
+    if (waterDateKey_(values[r][0], tz) === date) { row = r + 1; break; }
+  }
+  if (row < 0) {
+    row = Math.max(sh.getLastRow(), 1) + 1;
+    sh.getRange(row, 1).setNumberFormat('@').setValue(date);
+  }
+  sh.getRange(row, req.kind === 'wake' ? 2 : 3).setNumberFormat('@').setValue(time);
+  return { saved: true };
+}
+
 // ---------- month buy list ----------
 
 function parseBuy_(sh) {
@@ -682,6 +760,7 @@ function readAll_(ss) {
   out.budgets = readBudgets_(ss);
   out.profile = readProfile_(ss);
   out.water = readWater_(ss, tz);
+  out.sleep = readSleep_(ss, tz);
   return out;
 }
 

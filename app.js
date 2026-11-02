@@ -197,6 +197,9 @@ function applyLocal(action, p) {
     if (action === 'addWater') day.log.push({ t: p.time, ml: p.ml }); else day.log.pop();
     day.total = day.log.reduce((s, e) => s + e.ml, 0);
     day.goal = goal;
+  } else if (action === 'setSleep') {
+    const day = (S.data.sleep.days[p.date] ||= { wake: '', sleep: '' });
+    day[p.kind] = p.time;
   }
 }
 
@@ -222,6 +225,7 @@ async function loadSheet({ quiet = false } = {}) {
     const data = await api('read');
     data.profile ||= { height: null, waterGoal: null, tumbler: null };
     data.water ||= { days: {} };
+    data.sleep ||= { days: {} };
     if (hidesPeriod()) data.sheets.period = null;   // male accounts: no period tracking or analysis
     S.data = data;
     buildIndex();
@@ -553,6 +557,7 @@ function buildDay() {
     wrap.append(sec);
   }
   wrap.append(buildWater(date));
+  wrap.append(buildSleep(date));
 
   if (S.idx.products) wrap.append(buildProducts(date));
   return wrap;
@@ -601,6 +606,34 @@ const BODY_SHAPES = {
   female: '<circle cx="50" cy="20" r="13"/><path d="M36 38 L64 38 L67 58 L60 86 L75 142 L25 142 L40 86 L33 58 Z"/><path d="M33 42 L20 50 L14 98 L23 100 L31 66 Z"/><path d="M67 42 L80 50 L86 98 L77 100 L69 66 Z"/><path d="M33 138 L49 138 L47 228 L36 228 Z"/><path d="M51 138 L67 138 L64 228 L53 228 Z"/>',
   male: '<circle cx="50" cy="20" r="13"/><path d="M28 38 L72 38 L69 100 L65 128 L35 128 L31 100 Z"/><path d="M29 41 L16 50 L10 108 L21 110 L30 68 Z"/><path d="M71 41 L84 50 L90 108 L79 110 L70 68 Z"/><path d="M35 124 L49 124 L47 228 L35 228 Z"/><path d="M51 124 L65 124 L65 228 L53 228 Z"/>'
 };
+/* When the goal is met the body turns into a happy, glossy green figure (shown by .happy on .water-body). */
+const HAPPY_LAYER = `<defs>
+    <linearGradient id="hGrad" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="100" y2="0" spreadMethod="repeat">
+      <stop offset="0" style="stop-color:color-mix(in srgb, var(--accent) 60%, white)"/>
+      <stop offset=".5" style="stop-color:var(--accent-strong)"/>
+      <stop offset="1" style="stop-color:color-mix(in srgb, var(--accent) 60%, white)"/>
+      <animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="100 0" dur="4s" repeatCount="indefinite"/>
+    </linearGradient>
+    <linearGradient id="hCyl" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#000" stop-opacity=".38"/><stop offset=".3" stop-color="#fff" stop-opacity=".22"/>
+      <stop offset=".55" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".42"/>
+    </linearGradient>
+    <radialGradient id="hGloss" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#fff" stop-opacity=".85"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></radialGradient>
+  </defs>
+  <g class="happy-layer" clip-path="url(#wclip)">
+    <rect x="-10" y="0" width="120" height="240" fill="url(#hGrad)"/>
+    <rect x="-10" y="0" width="120" height="240" fill="url(#hCyl)"/>
+    <ellipse cx="44" cy="12" rx="6" ry="4" fill="url(#hGloss)"/>
+    <ellipse cx="38" cy="52" rx="4" ry="14" fill="url(#hGloss)" opacity=".5"/>
+  </g>
+  <g class="face">
+    <ellipse class="eye" cx="44.5" cy="17" rx="3" ry="3.6" fill="#fff"/><ellipse class="eye" cx="55.5" cy="17" rx="3" ry="3.6" fill="#fff"/>
+    <circle class="pupil" cx="45" cy="17.6" r="1.5" fill="#0b2a20"/><circle class="pupil" cx="56" cy="17.6" r="1.5" fill="#0b2a20"/>
+    <path d="M42.5 22.5 Q50 33.5 57.5 22.5 Z" fill="#0b2a20"/>
+    <path d="M43.6 22.5 H56.4 Q54.6 26.6 50 26.9 Q45.4 26.6 43.6 22.5 Z" fill="#fff"/>
+    <path d="M47 29.6 Q50 27.8 53 29.6 Q50 31.4 47 29.6 Z" fill="#e8737f"/>
+    <ellipse cx="40.5" cy="22" rx="2.2" ry="1.4" fill="#ff8a9a" opacity=".45"/><ellipse cx="59.5" cy="22" rx="2.2" ry="1.4" fill="#ff8a9a" opacity=".45"/>
+  </g>`;
 const WAVE_PATH = 'M-100 4 Q-75 -3 -50 4 T0 4 T50 4 T100 4 T150 4 T200 4 V260 H-100 Z';
 const svgBox = html => { const d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild; };
 const nowHM = () => { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -620,8 +653,9 @@ function buildWater(date) {
     <defs><clipPath id="wclip">${shape}</clipPath></defs>
     <g class="outline">${shape}</g>
     <g class="shape">${shape}</g>
-    <g clip-path="url(#wclip)"><g class="water-level"><g class="water-wave"><path d="${WAVE_PATH}" fill="var(--water)" opacity=".85"/></g></g></g></svg>`);
+    <g clip-path="url(#wclip)"><g class="water-level"><g class="water-wave"><path d="${WAVE_PATH}" fill="var(--water)" opacity=".85"/></g></g></g>${HAPPY_LAYER}</svg>`);
   const level = $('.water-level', fig);
+  const bodyBox = h('div', { class: 'water-body' }, fig);
 
   const total = h('div', { class: 'water-total' }), sub = h('p', { class: 'sub' }), logBox = h('div', { class: 'water-log' });
   const undoBtn = h('button', { class: 'btn small ghost', onclick: () => change(() => undoWater(date)) }, icon('arrow-back-up'), 'Undo last');
@@ -630,6 +664,7 @@ function buildWater(date) {
     const day = S.data.water.days[date] || { total: 0, log: [] };
     const p = day.total / goal;
     level.style.transform = `translateY(${7 + (1 - Math.min(p, 1)) * 223}px)`;
+    bodyBox.classList.toggle('happy', p >= 1);
     fill(total, mlText(day.total), h('small', null, ` / ${mlText(goal)} ml · ${Math.round(p * 100)}%`));
     const left = goal - day.total;
     sub.textContent = !day.total ? `Nothing yet. Tap the tumbler when you drink.`
@@ -644,7 +679,7 @@ function buildWater(date) {
   const addCustom = e => { e.preventDefault(); const ml = Number(custom.value); if (!(ml >= 1 && ml <= 3000)) return toast('Enter between 1 and 3000 ml.', true); change(() => drinkWater(date, ml)); custom.value = ''; };
 
   const card = h('div', { class: 'card water-card' },
-    h('div', { class: 'water-body' }, fig),
+    bodyBox,
     h('div', { class: 'water-info' }, total, sub,
       h('div', { class: 'water-actions' },
         h('button', { class: 'glass-btn', disabled: !inRange, onclick: () => change(() => drinkWater(date, tumbler)), 'aria-label': `Add one tumbler, ${tumbler} ml` },
@@ -656,8 +691,36 @@ function buildWater(date) {
   return section('glass-full', 'Water tracker', () => `${mlText(S.data.water.days[date]?.total || 0)} ml`, card);
 }
 
+/* ---------- sleep: tap Wake up / Sleep to stamp the current time ---------- */
+const clockMins = t => { const [hh, mm] = t.split(':').map(Number); return hh * 60 + mm; };
+const durText = m => `${Math.floor(m / 60)}h ${pad(m % 60)}m`;
+
+function buildSleep(date) {
+  const inRange = date >= S.idx.first && date <= S.idx.last, isToday = date === todayKey();
+  const get = d => S.data.sleep.days[d] || { wake: '', sleep: '' };
+  const summary = h('p', { class: 'sub' });
+  const col = (kind, ico, label, doneLabel) => {
+    const input = h('input', { type: 'time', 'aria-label': `${label} time`, disabled: !inRange,
+      onchange: e => { sendQuick('setSleep', { date, kind, time: e.target.value }); paint(); } });
+    const btn = h('button', { class: 'btn sleep-btn', disabled: !(inRange && isToday), title: isToday ? '' : 'Buttons record the current time, so they work on today only. Use the time box to fix other days.',
+      onclick: () => { sendQuick('setSleep', { date, kind, time: nowHM() }); paint(); } }, icon(ico), label);
+    const paintCol = () => { input.value = get(date)[kind]; };
+    return { box: h('div', { class: 'sleep-col' }, btn, h('label', { class: 'sleep-time' }, h('span', null, doneLabel), input)), input, paintCol };
+  };
+  const wake = col('wake', 'sunrise', 'Wake up', 'Woke at'), bed = col('sleep', 'moon', 'Sleep', 'Slept at');
+  function paint() {
+    wake.paintCol(); bed.paintCol();
+    const w = get(date).wake, prevBed = get(addDays(date, -1)).sleep;
+    summary.textContent = w && prevBed ? `Last night: ${durText((clockMins(w) - clockMins(prevBed) + 1440) % 1440)} (${prevBed} → ${w})`
+      : w || get(date).sleep ? "The sleep total appears once last night's bedtime and this morning's wake-up are both logged."
+      : isToday ? 'Tap Wake up in the morning and Sleep at night. The current time is saved.' : 'Nothing logged for this day.';
+  }
+  paint();
+  return section('moon', 'Sleep', null, h('div', { class: 'card sleep-card' }, h('div', { class: 'sleep-actions' }, wake.box, bed.box), summary));
+}
+
 /** Updates the screen straight away, then tells the sheet; reloads from the sheet if that fails. */
-async function sendWater(action, payload) {
+async function sendQuick(action, payload) {
   if (S.readOnly) return toast('This is a read-only view.', true);
   applyLocal(action, payload);
   S.countFns.forEach(f => f());
@@ -667,10 +730,10 @@ async function sendWater(action, payload) {
 }
 function drinkWater(date, ml) {
   const before = S.data.water.days[date]?.total || 0, goal = S.data.profile.waterGoal;
-  sendWater('addWater', { date, ml: Math.round(ml), time: nowHM() });
+  sendQuick('addWater', { date, ml: Math.round(ml), time: nowHM() });
   if (before < goal && before + ml >= goal) toast('Daily water goal reached! 🎉');
 }
-function undoWater(date) { sendWater('undoWater', { date }); }
+function undoWater(date) { sendQuick('undoWater', { date }); }
 
 /* ---------- height, water goal and tumbler setup ---------- */
 function profileForm(onDone, onCancel) {
@@ -1276,7 +1339,7 @@ function analyzeSpending() {
  * ======================================================= */
 const VIEWS = [
   ['overview', 'Overview'], ['dos', 'Daily Dos'], ['habits', 'Habits'],
-  ['period', 'Period cycle'], ['weight', 'Weight'], ['spending', 'Spending & restock']
+  ['period', 'Period cycle'], ['weight', 'Weight'], ['sleep', 'Sleep'], ['spending', 'Spending & restock']
 ];
 
 const views = () => VIEWS.filter(([v]) => !(v === 'period' && hidesPeriod()));
@@ -1319,7 +1382,7 @@ function renderAnalysis() {
   fill(body, );
   const win = analysisWindow();
   $('#analysisSub').textContent = windowLabel(win);
-  const fn = { overview: viewOverview, dos: (w, b) => viewGrid('dos', w, b), habits: (w, b) => viewGrid('habits', w, b), period: viewPeriod, weight: viewWeight, spending: viewSpending }[S.view];
+  const fn = { overview: viewOverview, dos: (w, b) => viewGrid('dos', w, b), habits: (w, b) => viewGrid('habits', w, b), period: viewPeriod, weight: viewWeight, sleep: viewSleep, spending: viewSpending }[S.view];
   fn(win, body);
 }
 
@@ -1366,6 +1429,8 @@ function viewOverview(win, body) {
   if (W && W.n) tiles.append(tile('Weight', `${W.latest[1]} kg`, W.n > 1 ? `${W.latest[1] - W.first[1] >= 0 ? '+' : ''}${(W.latest[1] - W.first[1]).toFixed(1)} kg since ${fmt(W.first[0])}` : 'First weigh-in'));
   else if (W) tiles.append(tile('Weight', '—', 'No weigh-ins in this period'));
   if (W && W.n && S.data.profile?.height) { const b = bmiInfo(W.latest[1], S.data.profile.height); tiles.append(tile('BMI', b.bmi.toFixed(1), b.label, b.cls === 'good' ? 'up' : 'down')); }
+  const Sl = analyzeSleep(win);
+  if (Sl.n) tiles.append(tile('Average sleep', durText(Math.round(Sl.avg)), Sl.inRange !== null ? `${pct(Sl.inRange)} of nights in the 7–9 h range` : `${plural(Sl.n, 'night')} logged`, Sl.avg >= 420 && Sl.avg <= 540 ? 'up' : 'down'));
   if (cm) tiles.append(tile(`${curMonth} buy list`, rupee(cm.planned), cm.budget ? `of ${rupee(cm.budget)} budget · ${cm.boughtCount}/${cm.items.length} bought` : `${cm.boughtCount}/${cm.items.length} bought`));
   body.append(tiles);
 
@@ -1652,6 +1717,114 @@ function viewWeight(win, body) {
   body.append(card);
 }
 
+/* ---------- sleep ---------- */
+/** A "night" = last evening's bedtime + this morning's wake-up, so it is dated by the wake-up day. */
+function analyzeSleep([start, end]) {
+  const days = S.data.sleep?.days || {};
+  const mins = t => { const [a, b] = t.split(':').map(Number); return a * 60 + b; };
+  const nights = [];
+  for (const d of rangeDays(start, end)) {
+    const wake = days[d]?.wake, bed = days[addDays(d, -1)]?.sleep;
+    if (!wake || !bed) continue;
+    const dur = (mins(wake) - mins(bed) + 1440) % 1440;
+    if (dur < 60 || dur > 16 * 60) continue;   // almost certainly a mis-tap (a 20 min or 18 h "night")
+    // bedtime on a continuous scale where 00:30 comes after 23:30 (anything before noon counts as past midnight)
+    const bm = mins(bed), wm = mins(wake);
+    nights.push({ date: d, bed, wake, dur, bedN: bm < 720 ? bm + 1440 : bm, wakeM: wm, dow: parseKey(d).getDay() });
+  }
+  const n = nights.length;
+  const out = { nights, n, avg: null, inRange: null };
+  if (!n) return out;
+  const durs = nights.map(x => x.dur);
+  out.avg = mean(durs);
+  out.inRange = n >= 3 ? nights.filter(x => x.dur >= 420 && x.dur <= 540).length / n : null;
+  out.shortest = nights.reduce((a, b) => (b.dur < a.dur ? b : a));
+  out.longest = nights.reduce((a, b) => (b.dur > a.dur ? b : a));
+  out.avgBed = mean(nights.map(x => x.bedN));
+  out.avgWake = mean(nights.map(x => x.wakeM));
+  const sd = (arr, m) => Math.sqrt(mean(arr.map(v => (v - m) ** 2)));
+  out.bedSd = n >= 3 ? sd(nights.map(x => x.bedN), out.avgBed) : null;
+  out.debt = nights.reduce((a, x) => a + Math.max(0, 480 - x.dur), 0);   // minutes short of 8 h
+  // current run of 7–9 h nights that ends on the latest logged night
+  let streak = 0;
+  for (let i = n - 1; i >= 0 && nights[i].dur >= 420 && nights[i].dur <= 540; i--) streak++;
+  out.streak = streak;
+  const wk = nights.filter(x => x.dow === 0 || x.dow === 6), wd = nights.filter(x => x.dow !== 0 && x.dow !== 6);
+  out.weekend = wk.length >= 2 && wd.length >= 3 ? [mean(wd.map(x => x.dur)), mean(wk.map(x => x.dur))] : null;
+  out.recent = n >= 6 ? [mean(durs.slice(-3)), mean(durs.slice(-6, -3))] : null;
+  // how the day after short vs long sleep went
+  const dos = S.idx.dos;
+  if (dos) {
+    const score = d => dos.items.filter(nm => dos.sets[nm].has(d)).length / dos.items.length;
+    const lg = nights.filter(x => dos.loggedDays.has(x.date));
+    const short = lg.filter(x => x.dur < 390), good = lg.filter(x => x.dur >= 420);
+    if (short.length >= 2 && good.length >= 2) out.next = { short: mean(short.map(x => score(x.date))), good: mean(good.map(x => score(x.date))), ns: short.length, ng: good.length };
+  }
+  return out;
+}
+
+const clockText = m => { m = Math.round(((m % 1440) + 1440) % 1440); return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; };
+
+function viewSleep(win, body) {
+  const A = analyzeSleep(win);
+  const logged = Object.values(S.data.sleep?.days || {}).filter(d => d.wake || d.sleep).length;
+  if (!A.n) {
+    body.append(h('p', { class: 'empty' }, logged
+      ? 'No complete nights yet. A night needs a Sleep time one evening and a Wake up time the next morning.'
+      : `No sleep logged for ${windowLabel(win)}. Tap Sleep at night and Wake up in the morning on the Today screen.`));
+    return;
+  }
+  const ok = A.avg >= 420 && A.avg <= 540;
+  body.append(h('div', { class: 'tiles' },
+    tile('Average sleep', durText(Math.round(A.avg)), ok ? 'Within the 7–9 h range' : A.avg < 420 ? `${durText(Math.round(420 - A.avg))} under 7 h` : 'Over 9 h', ok ? 'up' : 'down'),
+    tile('Nights logged', A.n, `${durText(A.shortest.dur)} shortest · ${durText(A.longest.dur)} longest`),
+    A.inRange !== null ? tile('In the 7–9 h range', pct(A.inRange), A.streak ? `${plural(A.streak, 'night')} in a row now` : 'Not currently on a run') : null,
+    tile('Usual bedtime', clockText(A.avgBed), A.bedSd !== null ? `varies by about ${Math.round(A.bedSd)} min` : 'Needs 3+ nights'),
+    tile('Usual wake-up', clockText(A.avgWake)),
+    tile('Sleep debt', durText(Math.round(A.debt)), `short of 8 h a night, over ${plural(A.n, 'night')}`, A.debt > 0 ? 'down' : 'up')
+  ));
+
+  const c1 = h('canvas'), c2 = h('canvas');
+  body.append(h('div', { class: 'grid-2' },
+    h('div', { class: 'card' }, h('h2', null, 'Hours slept'), h('p', { class: 'sub' }, 'Green nights are in the 7–9 h range'), h('div', { class: 'chart-box' }, c1)),
+    h('div', { class: 'card' }, h('h2', null, 'Bedtime and wake-up'), h('p', { class: 'sub' }, 'Steadier lines mean a steadier body clock'), h('div', { class: 'chart-box' }, c2))));
+  const labels = A.nights.map(x => fmt(x.date));
+  const good = css('--accent'), low = css('--warn');
+  chart(c1, {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label: 'Hours', data: A.nights.map(x => +(x.dur / 60).toFixed(2)), backgroundColor: A.nights.map(x => (x.dur >= 420 && x.dur <= 540 ? good : low)), borderRadius: 6 },
+      { type: 'line', label: '7 h', data: A.nights.map(() => 7), borderColor: css('--ink-3'), borderDash: [5, 4], borderWidth: 1, pointRadius: 0 },
+      { type: 'line', label: '9 h', data: A.nights.map(() => 9), borderColor: css('--ink-3'), borderDash: [5, 4], borderWidth: 1, pointRadius: 0 }
+    ] },
+    options: { scales: { y: { min: 0, ticks: { callback: v => v + ' h' } }, x: { grid: { display: false } } }, plugins: { legend: { display: false } } }
+  });
+  chart(c2, {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Bedtime', data: A.nights.map(x => +(x.bedN / 60).toFixed(2)), borderColor: css('--water'), backgroundColor: css('--water'), borderWidth: 2, pointRadius: 3, tension: .25 },
+      { label: 'Wake-up', data: A.nights.map(x => +((x.wakeM + 1440) / 60).toFixed(2)), borderColor: css('--orange'), backgroundColor: css('--orange'), borderWidth: 2, pointRadius: 3, tension: .25 }
+    ] },
+    options: { scales: { y: { reverse: true, ticks: { callback: v => clockText(v * 60) } }, x: { grid: { display: false } } },
+      plugins: { tooltip: { callbacks: { label: c => `${c.dataset.label}: ${clockText(c.parsed.y * 60)}` } } } }
+  });
+
+  const ins = [];
+  if (A.n < 3) ins.push(['ℹ️', 'Log a few more nights and patterns will show up here.']);
+  if (A.avg < 420) ins.push(['⚠️', `You average ${durText(Math.round(A.avg))}, about ${durText(Math.round(480 - A.avg))} short of a full 8 hours. Even moving bedtime 20–30 min earlier helps.`]);
+  else if (A.avg > 540) ins.push(['ℹ️', `You average ${durText(Math.round(A.avg))}. Regularly sleeping over 9 hours can mean poor-quality sleep or low energy.`]);
+  else ins.push(['✅', `Your average of ${durText(Math.round(A.avg))} is in the healthy 7–9 hour range.`]);
+  if (A.bedSd !== null) ins.push(A.bedSd > 60
+    ? ['🔴', `Your bedtime swings by about ${Math.round(A.bedSd)} minutes. A fixed bedtime matters as much as total hours.`]
+    : ['✅', `Your bedtime is steady (within about ${Math.round(A.bedSd)} min), which is good for your body clock.`]);
+  if (A.recent) { const d = A.recent[0] - A.recent[1]; if (Math.abs(d) >= 20) ins.push(d > 0 ? ['📈', `Sleeping ${durText(Math.round(d))} more lately than the nights before.`] : ['📉', `Sleeping ${durText(Math.round(-d))} less lately than the nights before.`]); }
+  if (A.weekend) { const [wd, we] = A.weekend, d = we - wd; if (Math.abs(d) >= 45) ins.push(['📅', `Weekend nights are ${durText(Math.round(Math.abs(d)))} ${d > 0 ? 'longer' : 'shorter'} than weekday nights (${durText(Math.round(we))} vs ${durText(Math.round(wd))}).`]); }
+  if (A.next) { const d = (A.next.good - A.next.short) * 100; if (Math.abs(d) >= 5) ins.push([d > 0 ? '🔑' : 'ℹ️', `After 7+ hours you complete ${pct(A.next.good)} of Daily Dos vs ${pct(A.next.short)} after under 6.5 h (${A.next.ng} and ${A.next.ns} days).`]); }
+  ins.push(['🏆', `Best night: ${durText(A.longest.dur)} on ${fmt(A.longest.date)}. Shortest: ${durText(A.shortest.dur)} on ${fmt(A.shortest.date)}.`]);
+  ins.push(['ℹ️', 'Based on the Sleep and Wake up times you log. These are associations, not medical advice.']);
+  body.append(h('div', { class: 'card' }, h('h2', null, 'What stands out'), h('div', { style: 'margin-top:10px' }, insightList(ins))));
+}
+
 /* ---------- spending ---------- */
 function viewSpending(win, body) {
   const A = analyzeSpending();
@@ -1741,6 +1914,8 @@ function makeDemoData() {
   let w = 64.8;
   past.forEach(d => { w += (rnd() - .55) * .35; if (rnd() > .25) entries[d] = +w.toFixed(1); if (rnd() > .4) nightW[d] = +(w + .4 + rnd() * .5).toFixed(1); });
   const waterDays = {};
+  const sleepDays = {};
+  past.slice(-14).forEach(d => { const bed = 22 * 60 + Math.floor(rnd() * 150), wake = 5 * 60 + 30 + Math.floor(rnd() * 120); sleepDays[d] = { sleep: `${pad(Math.floor(bed / 60) % 24)}:${pad(bed % 60)}`, wake: `${pad(Math.floor(wake / 60))}:${pad(wake % 60)}` }; });
   past.slice(-14).forEach(d => { const log = []; let tt = 8 * 60; const n = 4 + Math.floor(rnd() * 6); for (let i = 0; i < n; i++) { log.push({ t: `${pad(Math.floor(tt / 60))}:${pad(tt % 60)}`, ml: rnd() > .3 ? 250 : 350 }); tt += 60 + Math.floor(rnd() * 70); } waterDays[d] = { goal: 2000, total: log.reduce((s, e) => s + e.ml, 0), log }; });
   const buy = { sheetName: 'Month List To buy', slots: 11, months: {} };
   MONTHS.forEach(m => { buy.months[m] = []; });
@@ -1758,6 +1933,7 @@ function makeDemoData() {
     },
     profile: { height: 162, waterGoal: 2000, tumbler: 250 },
     water: { days: waterDays },
+    sleep: { days: sleepDays },
     budgets: { September: 1500, October: 4000, November: 1200 }
   };
 }
@@ -1836,10 +2012,11 @@ async function showAdminUploadNotice() {
   const years = notices.map(n => n.year).join(', ');
   const close = () => { overlay.remove(); Account.clearNotices(notices.map(n => n.id)); };
   const overlay = h('div', { class: 'modal-overlay', role: 'dialog', 'aria-modal': 'true' },
-    h('div', { class: 'card modal' },
+    h('div', { class: 'card notice-modal' },
+      h('div', { class: 'notice-ico' }, icon('file-check')),
       h('h2', null, 'New file added'),
-      h('p', null, `${by} uploaded your tracker for ${years}.`),
-      h('div', { class: 'row-actions' }, h('button', { class: 'btn primary', onclick: close }, 'Got it'))));
+      h('p', null, `${by} uploaded your tracker for `, h('b', null, years), '.'),
+      h('div', { class: 'notice-actions' }, h('button', { class: 'btn primary', onclick: close }, 'Got it'))));
   document.body.append(overlay);
 }
 
@@ -1959,10 +2136,11 @@ function askConfirm(title, message, okLabel = 'OK') {
     const onKey = e => { if (e.key === 'Escape') done(false); };
     const ok = h('button', { class: 'btn primary', onclick: () => done(true) }, okLabel);
     const overlay = h('div', { class: 'modal-overlay', role: 'dialog', 'aria-modal': 'true', onclick: e => { if (e.target === overlay) done(false); } },
-      h('div', { class: 'card modal' },
+      h('div', { class: 'card notice-modal' },
+        h('div', { class: 'notice-ico warn' }, icon('trash')),
         h('h2', null, title),
         h('p', null, message),
-        h('div', { class: 'row-actions' }, h('button', { class: 'btn ghost', onclick: () => done(false) }, 'Cancel'), ok)));
+        h('div', { class: 'notice-actions' }, h('button', { class: 'btn ghost', onclick: () => done(false) }, 'Cancel'), ok)));
     document.addEventListener('keydown', onKey);
     document.body.append(overlay);
     ok.focus();

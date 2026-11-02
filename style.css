@@ -524,5 +524,35 @@ select option { background: var(--surface); color: var(--ink); }
 
 /* admin-upload notice */
 .modal-overlay { position: fixed; inset: 0; z-index: 2000; background: rgba(0, 0, 0, .55); display: grid; place-items: center; padding: 16px; }
-.modal { max-width: 380px; width: 100%; }
-.modal h2 { margin-top: 0; }
+.modal-overlay { backdrop-filter: blur(3px); animation: fade-in .2s; }
+.notice-modal { max-width: 380px; width: 100%; padding: 28px 26px 22px; text-align: center; box-shadow: 0 24px 60px rgba(0, 0, 0, .45); animation: pop-in .25s cubic-bezier(.2, .9, .3, 1.2); }
+.notice-modal h2 { margin: 14px 0 6px; font-size: 1.25rem; }
+.notice-modal p { margin: 0; color: var(--ink-2); line-height: 1.5; }
+.notice-modal p b { color: var(--ink); }
+.notice-ico { width: 56px; height: 56px; border-radius: 50%; margin: 0 auto; display: grid; place-items: center; font-size: 1.7rem; background: var(--accent-soft); color: var(--accent); }
+.notice-ico.warn { background: color-mix(in srgb, var(--bad) 16%, var(--surface)); color: var(--bad); }
+.notice-actions { display: flex; gap: 10px; justify-content: center; margin-top: 22px; }
+.notice-actions .btn { min-width: 100px; justify-content: center; }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(10px) scale(.94); } }
+
+/* happy water figure: glossy animated green with a face, shown once the daily goal is met */
+.water-body .happy-layer, .water-body .face { opacity: 0; transition: opacity .7s; }
+.water-body.happy .happy-layer, .water-body.happy .face { opacity: 1; }
+.water-body.happy svg { transform-origin: 50% 100%; animation: bob 2.4s ease-in-out infinite; filter: drop-shadow(0 8px 10px color-mix(in srgb, var(--accent) 45%, transparent)); }
+.water-body .eye, .water-body .pupil { transform-box: fill-box; transform-origin: center; }
+.water-body.happy .eye, .water-body.happy .pupil { animation: blink 4.5s infinite; }
+@keyframes bob { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-5px) scale(1.025, .985); } }
+@keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+@media (prefers-reduced-motion: reduce) { .water-body.happy svg, .water-body.happy .eye, .water-body.happy .pupil { animation: none; } }
+
+/* sleep tracker */
+.sleep-card { display: flex; flex-direction: column; gap: 12px; }
+.sleep-actions { display: flex; gap: 14px; flex-wrap: wrap; }
+.sleep-col { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.sleep-btn { font-size: 1rem; padding: 12px 22px; background: var(--accent-soft); border-color: var(--accent); color: var(--accent-strong); }
+.sleep-btn:disabled { opacity: .5; cursor: default; }
+.sleep-time { display: flex; align-items: center; gap: 8px; font-size: .82rem; color: var(--ink-3); }
+.sleep-time input { width: auto; }
+.sleep-card .sub { margin: 0; }
+body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { pointer-events: none; opacity: .6; }

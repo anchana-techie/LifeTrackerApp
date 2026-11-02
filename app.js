@@ -1825,18 +1825,16 @@ async function onAuthChange(profile, msg) {
   await refreshYears();
   if (S.year) { await loadSheet(); switchTab('log'); } else { clearSheet(); switchTab('upload'); }
   setLoader(false);
-  showAdminUploadNotice();   // after the loader is gone, so the two never overlap
+  await showAdminUploadNotice();   // after the loader is gone, so the two never overlap
 }
 
-/** Tells a member once per file when an admin uploaded a year on their behalf. */
-function showAdminUploadNotice() {
-  const key = 'seenAdminUploads.' + S.user.uid;
-  const seen = store.get(key, []);
-  const fresh = S.years.filter(r => r.uploadedBy && !seen.includes(r.year));
-  if (!fresh.length) return;
-  const by = [...new Set(fresh.map(r => r.uploadedBy))].join(', ');
-  const years = fresh.map(r => r.year).join(', ');
-  const close = () => { overlay.remove(); store.set(key, [...seen, ...fresh.map(r => r.year)]); };
+/** Tells a member when an admin uploaded a year for them, then deletes the notice so it shows only once. */
+async function showAdminUploadNotice() {
+  const notices = await Account.listNotices(S.user.uid);
+  if (!notices.length) return;
+  const by = [...new Set(notices.map(n => n.by))].join(', ');
+  const years = notices.map(n => n.year).join(', ');
+  const close = () => { overlay.remove(); Account.clearNotices(notices.map(n => n.id)); };
   const overlay = h('div', { class: 'modal-overlay', role: 'dialog', 'aria-modal': 'true' },
     h('div', { class: 'card modal' },
       h('h2', null, 'New file added'),

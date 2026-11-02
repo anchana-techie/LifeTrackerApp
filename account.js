@@ -110,6 +110,17 @@ const Account = (() => {
       } catch (e) { fail(e); }
     },
 
+    /** Unseen "an admin uploaded <year> for you" notices. Never throws: a notice is not worth blocking sign-in. */
+    async listNotices(uid) {
+      try {
+        const snap = await db.collection('notices').where('userId', '==', uid).get();
+        return snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.year - b.year);
+      } catch (e) { return []; }
+    },
+    async clearNotices(ids) {
+      try { await Promise.all(ids.map(id => db.doc(`notices/${id}`).delete())); } catch (e) { /* shown again next time */ }
+    },
+
     /* ----- admin ----- */
     async listMembers() {
       try {

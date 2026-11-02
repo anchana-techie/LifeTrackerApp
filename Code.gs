@@ -145,6 +145,16 @@ function fsCreate_(collection, docId, fields) {
   if (code !== 200) throw new Error('Could not save the file link (' + code + '). Check the setup steps in the README.');
 }
 
+/** Creates or overwrites a document as the script owner. */
+function fsSet_(path, fields) {
+  var res = UrlFetchApp.fetch(fsBase_() + path, {
+    method: 'patch', contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), 'X-Goog-User-Project': prop_('FIREBASE_PROJECT_ID') },
+    payload: JSON.stringify({ fields: fields }), muteHttpExceptions: true
+  });
+  if (res.getResponseCode() !== 200) throw new Error('Could not save (' + res.getResponseCode() + ').');
+}
+
 /** Deletes a document as the script owner. Used to clear a link whose Drive file no longer exists. */
 function fsDelete_(path) {
   UrlFetchApp.fetch(fsBase_() + path, {
@@ -268,8 +278,18 @@ function upload_(auth, req) {
       driveLink: { stringValue: link },
       uploadedAt: { timestampValue: new Date().toISOString() }
     };
-    if (uploadedBy) fields.uploadedBy = { stringValue: uploadedBy };   // the member sees a notice at next sign-in
     fsCreate_('document_link', linkId, fields);
+    if (uploadedBy) {
+      // the member sees this once at next sign-in, then the app deletes it; a failure here must not undo the upload
+      try {
+        fsSet_('notices/' + linkId, {
+          userId: { stringValue: targetUid },
+          year: { integerValue: String(year) },
+          by: { stringValue: uploadedBy },
+          createdAt: { timestampValue: new Date().toISOString() }
+        });
+      } catch (err) { /* notice is a nicety */ }
+    }
     return { year: year, link: link };
   } catch (err) {
     DriveApp.getFileById(created.id).setTrashed(true);   // do not leave an orphan file behind

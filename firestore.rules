@@ -57,5 +57,14 @@ service cloud.firestore {
       allow create, update: if false;
       allow delete: if isAdmin();
     }
+
+    // notices = "an admin uploaded <year> for you". Written ONLY by the Apps Script. The member reads
+    // their own and deletes each one once they have seen it, so it shows up once and then is gone.
+    match /notices/{id} {
+      allow get: if signedIn() && id.matches(request.auth.uid + '_[0-9]{4}');
+      allow list: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create, update: if false;
+      allow delete: if signedIn() && resource.data.userId == request.auth.uid;
+    }
   }
 }

@@ -1825,6 +1825,24 @@ async function onAuthChange(profile, msg) {
   await refreshYears();
   if (S.year) { await loadSheet(); switchTab('log'); } else { clearSheet(); switchTab('upload'); }
   setLoader(false);
+  showAdminUploadNotice();   // after the loader is gone, so the two never overlap
+}
+
+/** Tells a member once per file when an admin uploaded a year on their behalf. */
+function showAdminUploadNotice() {
+  const key = 'seenAdminUploads.' + S.user.uid;
+  const seen = store.get(key, []);
+  const fresh = S.years.filter(r => r.uploadedBy && !seen.includes(r.year));
+  if (!fresh.length) return;
+  const by = [...new Set(fresh.map(r => r.uploadedBy))].join(', ');
+  const years = fresh.map(r => r.year).join(', ');
+  const close = () => { overlay.remove(); store.set(key, [...seen, ...fresh.map(r => r.year)]); };
+  const overlay = h('div', { class: 'modal-overlay', role: 'dialog', 'aria-modal': 'true' },
+    h('div', { class: 'card modal' },
+      h('h2', null, 'New file added'),
+      h('p', null, `${by} uploaded your tracker for ${years}.`),
+      h('div', { class: 'row-actions' }, h('button', { class: 'btn primary', onclick: close }, 'Got it'))));
+  document.body.append(overlay);
 }
 
 async function loadMemberYears() {
@@ -1960,7 +1978,7 @@ async function renderAdmin() {
     const driveHref = l => (/^https:\/\/docs\.google\.com\//.test(l) ? l : null);
     fill(memberBox, ...members.map((m, i) => h('div', { class: 'row member' },
       h('div', { class: 'who' }, h('b', null, m.userName), m.role === 'admin' ? h('span', { class: 'pill' }, 'admin') : null, h('div', { class: 'muted' }, m.email)),
-      h('div', { class: 'years' }, years[i].length
+      h('div', { class: 'years' }, m.role === 'admin' ? null : years[i].length
         ? years[i].map(r => h('span', { class: 'year-tag' }, r.year,
           driveHref(r.driveLink) ? h('a', { href: driveHref(r.driveLink), target: '_blank', rel: 'noopener', title: 'Open in Google Drive', 'aria-label': `Open ${r.year} in Google Drive` }, icon('external-link')) : null,
           h('button', { class: 'x', title: 'Remove this year so it can be uploaded again', 'aria-label': `Remove ${r.year}`, onclick: () => removeYear(m, r.year) }, icon('x'))))

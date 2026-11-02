@@ -225,14 +225,17 @@ function detectYear_(ss) {
 function upload_(auth, req) {
   var year = parseYear_(req.year);
   var member = getMember_(auth);
-  var targetUid = auth.uid;
+  var targetUid = auth.uid, uploadedBy = '';
   if (req.asUid && String(req.asUid) !== auth.uid) {
     if (member.role !== 'admin') throw new Error('You do not have access to that.');
     targetUid = String(req.asUid);
     if (!/^[A-Za-z0-9]{10,40}$/.test(targetUid)) throw new Error('Bad user.');
     var tdoc = fsGet_('members/' + targetUid, auth.token);
     if (!tdoc) throw new Error('That person was not found.');
+    uploadedBy = member.userName;
     member = { userName: fsStr_(tdoc, 'userName'), role: fsStr_(tdoc, 'role') };
+  } else if (member.role === 'admin') {
+    throw new Error('Choose the person to upload for.');   // admins do not keep a tracker of their own
   }
   var linkId = targetUid + '_' + year;
   var existing = fsGet_('document_link/' + linkId, auth.token);
@@ -257,14 +260,16 @@ function upload_(auth, req) {
     var detected = detectYear_(SpreadsheetApp.openById(created.id));
     if (detected !== year) throw new Error('The dates in this file are for ' + detected + ', not ' + year + '.');
     var link = 'https://docs.google.com/spreadsheets/d/' + created.id + '/edit';
-    fsCreate_('document_link', linkId, {
+    var fields = {
       userId: { stringValue: targetUid },
       userName: { stringValue: member.userName },
       year: { integerValue: String(year) },
       driveFileId: { stringValue: created.id },
       driveLink: { stringValue: link },
       uploadedAt: { timestampValue: new Date().toISOString() }
-    });
+    };
+    if (uploadedBy) fields.uploadedBy = { stringValue: uploadedBy };   // the member sees a notice at next sign-in
+    fsCreate_('document_link', linkId, fields);
     return { year: year, link: link };
   } catch (err) {
     DriveApp.getFileById(created.id).setTrashed(true);   // do not leave an orphan file behind

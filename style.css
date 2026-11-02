@@ -521,3 +521,8 @@ select option { background: var(--surface); color: var(--ink); }
 .pcard .kv b { color: var(--ink); text-align: right; }
 .pc-foot { display: flex; gap: 6px; flex-wrap: wrap; }
 .pc-foot .pill { margin-left: 0; font-size: .74rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* admin-upload notice */
+.modal-overlay { position: fixed; inset: 0; z-index: 2000; background: rgba(0, 0, 0, .55); display: grid; place-items: center; padding: 16px; }
+.modal { max-width: 380px; width: 100%; }
+.modal h2 { margin-top: 0; }

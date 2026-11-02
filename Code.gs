@@ -145,6 +145,22 @@ function fsCreate_(collection, docId, fields) {
   if (code !== 200) throw new Error('Could not save the file link (' + code + '). Check the setup steps in the README.');
 }
 
+/** Deletes a document as the script owner. Used to clear a link whose Drive file no longer exists. */
+function fsDelete_(path) {
+  UrlFetchApp.fetch(fsBase_() + path, {
+    method: 'delete',
+    headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), 'X-Goog-User-Project': prop_('FIREBASE_PROJECT_ID') },
+    muteHttpExceptions: true
+  });
+}
+
+/** True when the Drive file behind a document_link row is gone (deleted or in the bin). */
+function linkIsStale_(doc) {
+  var id = fsStr_(doc, 'driveFileId');
+  if (!id) return true;
+  try { return DriveApp.getFileById(id).isTrashed(); } catch (err) { return true; }
+}
+
 function fsStr_(doc, name) {
   var f = doc && doc.fields && doc.fields[name];
   return f && f.stringValue !== undefined ? f.stringValue : '';
@@ -219,8 +235,10 @@ function upload_(auth, req) {
     member = { userName: fsStr_(tdoc, 'userName'), role: fsStr_(tdoc, 'role') };
   }
   var linkId = targetUid + '_' + year;
-  if (fsGet_('document_link/' + linkId, auth.token)) {
-    throw new Error(year + ' has already been uploaded and cannot be replaced.');
+  var existing = fsGet_('document_link/' + linkId, auth.token);
+  if (existing) {
+    if (!linkIsStale_(existing)) throw new Error(year + ' has already been uploaded and cannot be replaced.');
+    fsDelete_('document_link/' + linkId);   // the Drive file was deleted, so free the year up again
   }
 
   var b64 = String(req.data || '');

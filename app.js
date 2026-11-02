@@ -1926,7 +1926,7 @@ async function doAdminUpload(e) {
   if (file.size > 10 * 1024 * 1024) return problem('That file is larger than 10 MB.');
   btn.disabled = true; st.textContent = 'Checking…';
   try {
-    if ((await Account.listYears(uid)).some(r => r.year === year)) return problem(`${year} has already been uploaded for ${member.userName}.`);
+    // no client-side duplicate check: the server knows whether the Drive file still exists
     st.textContent = 'Uploading and converting to Google Sheets — this can take up to a minute…';
     await api('upload', { year, asUid: uid, data: await fileToBase64(file) });
     e.target.reset(); st.textContent = '';

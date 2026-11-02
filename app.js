@@ -1991,7 +1991,7 @@ async function onAuthChange(profile, msg) {
   $('#navUpload').hidden = admin;   // admins do not upload files for themselves
   S.members = []; S.memberYears = {};
   if (admin) {
-    try { S.members = await Account.listMembers(); await loadMemberYears(); } catch (err) { toast(err.message, true); }
+    try { S.members = (await Account.listMembers()).filter(m => !m.deleted); await loadMemberYears(); } catch (err) { toast(err.message, true); }
     await enterGroup();
     switchTab('log');
     setLoader(false);
@@ -2157,26 +2157,34 @@ async function removeYear(member, year) {
   } catch (err) { toast(err.message, true); }
 }
 
+async function removeMember(member, years) {
+  if (!await askConfirm(`Remove ${member.userName}?`, `This clears ${member.userName}'s row, year links, username and invite. Their Google Drive files are not touched. They need a new invite to join again.`, 'Remove')) return;
+  try { await Account.removeMember(member, years); toast('Removed'); renderAdmin(); }
+  catch (err) { toast(err.message, true); }
+}
+
 async function renderAdmin() {
   const memberBox = $('#memberList'), inviteBox = $('#inviteList');
   try {
     const [members, invites] = await Promise.all([Account.listMembers(), Account.listInvites()]);
     const years = await Promise.all(members.map(m => Account.listYears(m.uid)));
-    S.members = members;
+    S.members = members.filter(m => !m.deleted);   // deleted people are only listed below, never offered as a view
     S.memberYears = Object.fromEntries(members.map((m, i) => [m.uid, years[i]]));
     fillUserSelect();
     const upSel = $('#adminUploadUser'), prev = upSel.value;
-    fill(upSel, ...members.filter(m => m.role !== 'admin').map(m => h('option', { value: m.uid }, m.userName)));
+    fill(upSel, ...S.members.filter(m => m.role !== 'admin').map(m => h('option', { value: m.uid }, m.userName)));
     if (prev) upSel.value = prev;
     const driveHref = l => (/^https:\/\/docs\.google\.com\//.test(l) ? l : null);
     fill(memberBox, ...members.map((m, i) => h('div', { class: 'row member' },
-      h('div', { class: 'who' }, h('b', null, m.userName), m.role === 'admin' ? h('span', { class: 'pill' }, 'admin') : null, h('div', { class: 'muted' }, m.email)),
+      h('div', { class: 'who' }, h('b', null, m.userName), m.role === 'admin' ? h('span', { class: 'pill' }, 'admin') : null, m.deleted ? h('span', { class: 'pill bad' }, 'Deleted') : null, h('div', { class: 'muted' }, m.email)),
       h('div', { class: 'years' }, m.role === 'admin' ? null : years[i].length
         ? years[i].map(r => h('span', { class: 'year-tag' }, r.year,
           driveHref(r.driveLink) ? h('a', { href: driveHref(r.driveLink), target: '_blank', rel: 'noopener', title: 'Open in Google Drive', 'aria-label': `Open ${r.year} in Google Drive` }, icon('external-link')) : null,
           h('button', { class: 'x', title: 'Remove this year so it can be uploaded again', 'aria-label': `Remove ${r.year}`, onclick: () => removeYear(m, r.year) }, icon('x'))))
         : h('span', { class: 'muted' }, 'No files yet')),
-      h('button', { class: 'btn small', onclick: () => { $('#userSelect').value = m.uid; viewPerson(m.uid); } }, icon('eye'), 'View'))));
+      m.deleted
+        ? h('button', { class: 'btn small', onclick: () => removeMember(m, years[i]) }, icon('trash'), 'Remove')
+        : h('button', { class: 'btn small', onclick: () => { $('#userSelect').value = m.uid; viewPerson(m.uid); } }, icon('eye'), 'View'))));
     fill(inviteBox, ...invites.map(inv => {
       const joined = members.some(m => m.email === inv.email);
       return h('div', { class: 'row' }, h('span', null, inv.email), h('span', { class: 'muted' }, joined ? 'registered' : 'waiting'),
@@ -2243,6 +2251,15 @@ function init() {
     if ($('#pwNew').value !== $('#pwNew2').value) { st.textContent = 'The two new passwords do not match.'; return; }
     st.textContent = 'Changing…';
     try { await Account.changePassword($('#pwCur').value, $('#pwNew').value); e.target.reset(); st.textContent = '✓ Password changed'; toast('Password changed'); }
+    catch (err) { st.textContent = '✗ ' + err.message; }
+  });
+  $('#delForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const st = $('#delStatus');
+    if (S.user.role === 'admin') { st.textContent = '✗ The admin account cannot be deleted here.'; return; }
+    if (!await askConfirm('Delete your account?', 'Your login will be removed and you will be signed out. This cannot be undone.', 'Delete')) return;
+    st.textContent = 'Deleting…';
+    try { await Account.deleteAccount($('#delPw').value); e.target.reset(); st.textContent = ''; }
     catch (err) { st.textContent = '✗ ' + err.message; }
   });
   $$('#signOutBtn, #topSignOut').forEach(b => b.addEventListener('click', () => { if (confirmDiscard()) Account.signOut(); }));

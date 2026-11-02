@@ -25,6 +25,7 @@ const Account = (() => {
     const snap = await db.doc('members/' + user.uid).get();
     if (!snap.exists) return null;
     const d = snap.data();
+    if (d.deleted) return null;
     return { uid: user.uid, email: user.email, userName: d.userName, role: d.role || 'user', gender: d.gender || '' };
   }
 
@@ -102,6 +103,21 @@ const Account = (() => {
 
     signOut: () => auth.signOut(),
 
+    /** Deletes the signed-in person's login. Their member record stays, flagged deleted, so the admin can see it and remove the row. */
+    async deleteAccount(password) {
+      const user = auth.currentUser, ref = db.doc('members/' + user.uid);
+      busy = true;   // the sign-out that follows must not be reported as "not set up"
+      try {
+        try { await user.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(user.email, password)); } catch (e) { fail(e); }
+        await ref.update({ deleted: true, deletedAt: firebase.firestore.FieldValue.serverTimestamp() }).catch(fail);
+        try { await user.delete(); } catch (e) {
+          await ref.update({ deleted: false }).catch(() => {});   // not allowed by the rules; the admin can fix by hand
+          fail(e);
+        }
+      } finally { busy = false; }
+      onChange(null, 'Your account has been deleted.');
+    },
+
     /** document_link rows for one user, oldest year first. */
     async listYears(uid) {
       try {
@@ -140,6 +156,15 @@ const Account = (() => {
     },
     async removeInvite(email) {
       try { await db.doc('invites/' + lower(email)).delete(); } catch (e) { fail(e); }
+    },
+    /** Admin: clears a deleted member's row, their year rows, username and invite (so they need a fresh invite). Drive files are left alone. */
+    async removeMember(member, years) {
+      try {
+        await Promise.all(years.map(r => db.doc(`document_link/${member.uid}_${r.year}`).delete()));
+        await db.doc('members/' + member.uid).delete();
+        await db.doc('usernames/' + member.userName.toLowerCase()).delete();
+        await db.doc('invites/' + lower(member.email)).delete();
+      } catch (e) { fail(e); }
     },
     async removeLink(uid, year) {
       try { await db.doc(`document_link/${uid}_${year}`).delete(); } catch (e) { fail(e); }

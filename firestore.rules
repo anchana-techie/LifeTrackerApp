@@ -18,7 +18,7 @@ service cloud.firestore {
     }
 
     // Reserves a username (lower-cased) so two people cannot share one.
-    // Create-only: it can never be changed or released, so usernames stay fixed.
+    // Create-only: it can never be changed. Only the admin releases one, when removing a deleted member.
     match /usernames/{name} {
       allow get: if signedIn();
       allow create: if signedIn()
@@ -26,7 +26,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['uid'])
         && request.resource.data.uid == request.auth.uid
         && exists(/databases/$(database)/documents/invites/$(myEmail()));
-      allow update, delete: if false;
+      allow update: if false;
+      allow delete: if isAdmin();
     }
 
     // Member = the registration table. No password here: Firebase Authentication stores it (hashed).
@@ -41,7 +42,13 @@ service cloud.firestore {
         && request.resource.data.userName.matches('^[A-Za-z0-9_-]{3,30}$')
         && exists(/databases/$(database)/documents/invites/$(myEmail()))
         && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.userName.lower())).data.uid == uid;
-      allow update, delete: if false;                                 // username never changes
+      // A member may only flag their own record as deleted (their login is removed at the same time);
+      // the admin then sees "Deleted" and removes the row. The username itself never changes.
+      allow update: if signedIn() && request.auth.uid == uid
+        && resource.data.get('deleted', false) == false
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deleted', 'deletedAt'])
+        && request.resource.data.deleted == true;
+      allow delete: if isAdmin() && resource.data.get('deleted', false) == true;
     }
 
     // document_link = one row per user per year (the fact table). The document id is "<uid>_<year>",

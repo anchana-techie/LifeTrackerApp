@@ -78,6 +78,7 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
 .btn.primary:hover { background: var(--accent-strong); border-color: var(--accent-strong); }
 .btn.ghost { background: transparent; }
 .btn.small { padding: 5px 11px; font-size: .82rem; border-radius: 10px; }
+.btn.danger { color: var(--bad); border-color: var(--bad); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .icon-btn { width: 40px; height: 40px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); display: grid; place-items: center; cursor: pointer; font-size: 1.15rem; flex: none; }
 .icon-btn:disabled { opacity: .35; cursor: default; }

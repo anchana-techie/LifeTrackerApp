@@ -761,6 +761,7 @@ function readAll_(ss) {
   out.profile = readProfile_(ss);
   out.water = readWater_(ss, tz);
   out.sleep = readSleep_(ss, tz);
+  out.oneTime = readOneTime_(ss, tz);
   return out;
 }
 
@@ -863,12 +864,61 @@ function saveBuyList_(ss, req) {
   return { saved: items.length };
 }
 
-/** req: { product, date:'yyyy-MM-dd', bought: true|false } — writes X in Products, adding the product row if new */
+/**
+ * req: { product, date:'yyyy-MM-dd', bought: true|false }
+ * A product that is already in Products gets an X there (it feeds the restock reminders).
+ * Anything else is a one-time buy: it is recorded in its own sheet and never added to Products.
+ */
 function markBought_(ss, req) {
   var tz = ss.getSpreadsheetTimeZone();
+  var product = String(req.product || ''), date = String(req.date || '');
   var sh = findSheet_(ss, SHEETS.products);
-  if (!sh) throw new Error('Products sheet not found.');
-  var g = parseGrid_(sh, tz);
-  setGridMark_(g, String(req.product || ''), String(req.date || ''), req.bought !== false, true);
-  return { ok: true };
+  if (sh) {
+    var g = parseGrid_(sh, tz);
+    var known = g.items.some(function (it) { return norm_(it.name) === norm_(product); });
+    if (known) { setGridMark_(g, product, date, req.bought !== false, false); return { ok: true, oneTime: false }; }
+  }
+  setOneTime_(ss, tz, product, date, req.bought !== false);
+  return { ok: true, oneTime: true };
+}
+
+// ---------- one-time buys: Date | Product ----------
+
+var ONETIME_SHEET = 'One-time Buys';
+
+function readOneTime_(ss, tz) {
+  var sh = ss.getSheetByName(ONETIME_SHEET), out = [];
+  if (!sh) return out;
+  var values = sh.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    var k = waterDateKey_(values[r][0], tz), name = String(values[r][1] == null ? '' : values[r][1]).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(k) && name) out.push({ product: name, date: k });
+  }
+  return out;
+}
+
+function setOneTime_(ss, tz, product, date, on) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Invalid date.');
+  product = product.trim();
+  if (!product) throw new Error('Product name is empty.');
+  var sh = ss.getSheetByName(ONETIME_SHEET);
+  if (!sh) {
+    if (!on) return;
+    sh = ss.insertSheet(ONETIME_SHEET);
+    sh.getRange(1, 1, 1, 2).setValues([['Date', 'Product']])
+      .setFontWeight('bold').setFontColor('#ffffff').setBackground('#2F5496');
+    sh.getRange('A:A').setNumberFormat('@');
+    sh.setColumnWidth(1, 100); sh.setColumnWidth(2, 260); sh.setFrozenRows(1);
+  }
+  var values = sh.getDataRange().getValues(), row = -1;
+  for (var r = values.length - 1; r >= 1; r--) {
+    if (waterDateKey_(values[r][0], tz) === date && norm_(values[r][1]) === norm_(product)) { row = r + 1; break; }
+  }
+  if (on && row < 0) {
+    var next = Math.max(sh.getLastRow(), 1) + 1;
+    sh.getRange(next, 1).setNumberFormat('@').setValue(date);
+    sh.getRange(next, 2).setValue(product);
+  } else if (!on && row > 0) {
+    sh.deleteRow(row);
+  }
 }

@@ -296,7 +296,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 22px 32px 120px; }
 .status.bought { color: var(--good); font-weight: 600; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
 .buy-bought-form { display: flex; gap: 6px; align-items: center; }
 .buy-bought-form input { padding: 6px 8px; font-size: .82rem; width: 138px; }
-.new-tag { color: var(--orange); font-size: .72rem; margin-top: 3px; }
+.new-tag { color: var(--ink-3); font-size: .72rem; margin-top: 3px; }
 .dirty-note { color: var(--orange); font-size: .85rem; font-weight: 600; }
 .remove { background: none; border: 0; color: var(--ink-3); cursor: pointer; font-size: 1.2rem; padding: 4px; border-radius: 8px; }
 .remove:hover { color: var(--bad); background: var(--surface); }

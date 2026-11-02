@@ -48,6 +48,7 @@ Sheets are found by the start of their name, so the year in the name can change.
 | Sheet (name starts with) | Layout |
 |---|---|
 | `Products`, `Daily Dos`, `Habit` | Row of dates (row 2), item names in column A from row 4, `X` under a date = done / bought |
+| `One-time Buys` | Created by the app: `Date`, `Product`. Buy list items that are not in Products are recorded here when marked bought. |
 | `Period` | Calendar blocks; `X` in the cell under a date |
 | `Weight` | Header row with `Date` and `Weight (kg)` (morning). A `Night Weight (kg)` column is added on first night entry |
 | `Body Settings` | `Setting`, `Value`: height, water goal, tumbler (created automatically) |

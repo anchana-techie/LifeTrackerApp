@@ -3,6 +3,7 @@
 Newest first. Add a line here with every feature change.
 
 ## 2026-11-03
+- **Changed** Marking a Buy list item as bought now ticks the **Products** sheet only if that product is already there. Anything else is a one-time buy: it is recorded in a new `One-time Buys` sheet (Date, Product) and never added to Products or the restock reminders. Redeploy `Code.gs` as a new version.
 - **Added** Files tab for members and the admin: pick an uploaded year and read its sheets (Daily Dos, Habits, Products, Period, Weight, Month list, Sleep, Water) as read-only tables, month by month. The admin can open any member's files.
 - **Added** Upload > "Create next year's file": starts from the tasks of your latest year, lets you add or remove Daily Dos, Habits and Products, builds the `.xlsx` in the browser (SheetJS from cdnjs) and uploads it as the chosen year, or just downloads it. Daily ticks, weights and sleep start empty; height, water goal and tumbler carry over.
 - **Changed** Weight insight uses morning and night weigh-ins: day gain, overnight change, net per day, weekday pattern and item effects.

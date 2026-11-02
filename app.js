@@ -188,7 +188,14 @@ function applyLocal(action, p) {
       if (p.budget === '' || p.budget === null) delete S.data.budgets[p.month]; else S.data.budgets[p.month] = Number(p.budget);
     }
   } else if (action === 'markBought') {
-    setMark(sh.products, p.product, p.date, p.bought !== false, true);
+    // only a product already in Products is ticked there; anything else is a one-time buy
+    if (sh.products?.items.some(i => norm(i.name) === norm(p.product))) setMark(sh.products, p.product, p.date, p.bought !== false, false);
+    else {
+      const list = (S.data.oneTime ||= []);
+      const at = list.findIndex(o => o.date === p.date && norm(o.product) === norm(p.product));
+      if (p.bought !== false && at < 0) list.push({ product: p.product.trim(), date: p.date });
+      if (p.bought === false && at >= 0) list.splice(at, 1);
+    }
   } else if (action === 'saveProfile') {
     S.data.profile = { height: Number(p.height), waterGoal: Number(p.waterGoal), tumbler: Number(p.tumbler) };
   } else if (action === 'addWater' || action === 'undoWater') {
@@ -955,11 +962,11 @@ function defaultBuyMonth() {
 function monthKey(monthName) { return `${S.idx.year}-${pad(MONTHS.indexOf(monthName) + 1)}`; }
 function boughtInMonth(product, monthName) {
   const ix = S.idx.products;
-  if (!ix) return null;
-  const name = ix.items.find(i => norm(i) === norm(product));
-  if (!name) return null;
   const ym = monthKey(monthName);
-  return [...ix.sets[name]].filter(d => monthOf(d) === ym).sort()[0] || null;
+  const name = ix?.items.find(i => norm(i) === norm(product));
+  if (name) return [...ix.sets[name]].filter(d => monthOf(d) === ym).sort()[0] || null;
+  // not a regular product: look in the one-time buys
+  return (S.data.oneTime || []).filter(o => norm(o.product) === norm(product) && monthOf(o.date) === ym).map(o => o.date).sort()[0] || null;
 }
 function ensureDraft() {
   if (S.buyDraft && S.buyDraft.month === S.buyMonth) return;
@@ -1013,7 +1020,7 @@ function buyRow(it, i) {
     const def = monthOf(t) === ym ? t : clampDate(`${ym}-01`);
     const di = h('input', { type: 'date', value: def, min: S.idx.first, max: S.idx.last, 'aria-label': 'Bought on' });
     statusCell.append(h('div', { class: 'buy-bought-form' }, di, h('button', { class: 'btn small', onclick: () => doMarkBought(it.product, di.value, true) }, icon('check'), 'Bought')));
-    if (!known) statusCell.append(h('div', { class: 'new-tag' }, 'New — will be added to Products'));
+    if (!known) statusCell.append(h('div', { class: 'new-tag' }, 'One-time buy — not added to Products'));
   };
   rowEl.append(bic,
     h('input', { class: 'p', list: 'productNames', value: it.product, placeholder: 'Product', 'aria-label': `Product ${i + 1}`, oninput: e => { it.product = e.target.value; markBuyDirty(); drawStatus(); renderBuySummary(); } }),

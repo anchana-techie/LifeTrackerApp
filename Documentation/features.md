@@ -6,7 +6,7 @@
 |---|---|---|
 | Sign in / Register | Everyone | Email + password sign-in, "Forgot password" email, invite-only registration with username, gender, email, password. |
 | Header | Signed in | "Hello, name" on the left, **Sign out** on the right. Year picker; admins also get a person picker. |
-| Today | Person | Tap tiles to mark Daily Dos, Habits, products bought, period day (not for male accounts) and weight. Day or Week view. Changes are collected and saved together. |
+| Today | Person | Tap tiles to mark Daily Dos, Habits, products bought, period day (not for male accounts), morning and night weight with a BMI warning, and a water tracker. Day or Week view. Changes are collected and saved together. |
 | Buy list | Person | Plan products and budget per month, mark items bought. |
 | Insights | Person | Overview, Daily Dos, Habits, Period cycle (hidden for male accounts), Weight, Spending and restock; for All tracked, last 30 / 7 days or a month. |
 | Upload | Person | Choose a year and an `.xlsx`; lists the years already uploaded. |
@@ -34,6 +34,9 @@ One web-app URL, `POST`, body is JSON sent as `text/plain` (avoids a CORS prefli
 | `saveDay` / `saveDays` | `date` / `days[]` with grid, period, weight changes | `{ changed }` |
 | `saveBuyList` | `month`, `items`, `budget` | `{ saved }` |
 | `markBought` | `product`, `date`, `bought` | `{ ok }` |
+| `saveProfile` | `height` (cm), `waterGoal` (ml), `tumbler` (ml) | `{ saved }` |
+| `addWater` | `date`, `ml`, `time` (`HH:mm`) | `{ total, goal, log }` |
+| `undoWater` | `date` | `{ total, goal, log }` (last entry removed) |
 
 Responses are `{ ok: true, data }` or `{ ok: false, error }`. With `asUid` set (admin viewing someone), every action except `read` is refused.
 
@@ -45,7 +48,9 @@ Sheets are found by the start of their name, so the year in the name can change.
 |---|---|
 | `Products`, `Daily Dos`, `Habit` | Row of dates (row 2), item names in column A from row 4, `X` under a date = done / bought |
 | `Period` | Calendar blocks; `X` in the cell under a date |
-| `Weight` | Header row with `Date` and `Weight (kg)` |
+| `Weight` | Header row with `Date` and `Weight (kg)` (morning). A `Night Weight (kg)` column is added on first night entry |
+| `Body Settings` | `Setting`, `Value`: height, water goal, tumbler (created automatically) |
+| `Water Log` | `Date`, `Goal (ml)`, `Total (ml)`, `Log` such as `08:15 +250 \| 10:30 +350` (created automatically) |
 | `Month List` | Header row `Product-1`, `Product - 1 Cost Approx`, ...; one row per month in column A |
 | `Buy Settings` | `Month`, `Budget`, `Notes` (created automatically) |
 

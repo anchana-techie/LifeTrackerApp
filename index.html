@@ -241,6 +241,11 @@
             <p id="pwStatus" class="sub"></p>
           </div>
           <div class="card settings">
+            <h2>Body &amp; water</h2>
+            <p class="sub">Height drives your BMI. Water goal and tumbler size drive the water tracker. Saved in the year's Excel file.</p>
+            <div id="profileBox"><p class="sub">Load your sheet to edit these.</p></div>
+          </div>
+          <div class="card settings">
             <h2>Daily Dos groups</h2>
             <p class="sub">Choose when each item belongs. Picked automatically from the name until you change it.</p>
             <div id="groupEditor" class="group-editor"><p class="sub">Load your sheet to edit groups.</p></div>
@@ -254,6 +259,9 @@
       </section>
     </main>
   </div>
+</div>
+<div class="loader" id="loader" role="status" aria-live="polite">
+  <div class="loader-box"><span class="spinner" aria-hidden="true"></span><p id="loaderText">Loading…</p></div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </body>

@@ -71,6 +71,14 @@ function toast(msg, isErr = false) {
   toast._t = setTimeout(() => { t.hidden = true; }, isErr ? 6000 : 2600);
 }
 
+// full-screen loading overlay
+function setLoader(on, text = 'Loading…') {
+  const l = $('#loader');
+  if (!l) return;
+  $('#loaderText').textContent = text;
+  l.hidden = !on;
+}
+
 /* =========================================================
  * State
  * ======================================================= */
@@ -141,7 +149,10 @@ function applyLocal(action, p) {
       sh.period.marked = [...m].sort();
     }
     if (p.weight !== undefined && sh.weight) {
-      if (p.weight === '') delete sh.weight.entries[p.date]; else sh.weight.entries[p.date] = Number(p.weight);
+      const wt = typeof p.weight === 'object' ? p.weight : { m: p.weight };   // plain number = morning
+      const put = (map, v) => { if (v === '') delete map[p.date]; else map[p.date] = Number(v); };
+      if (wt.m !== undefined) put(sh.weight.entries, wt.m);
+      if (wt.n !== undefined) put(sh.weight.night ||= {}, wt.n);
     }
   } else if (action === 'saveDays') {
     p.days.forEach(d => applyLocal('saveDay', d));
@@ -153,6 +164,14 @@ function applyLocal(action, p) {
     }
   } else if (action === 'markBought') {
     setMark(sh.products, p.product, p.date, p.bought !== false, true);
+  } else if (action === 'saveProfile') {
+    S.data.profile = { height: Number(p.height), waterGoal: Number(p.waterGoal), tumbler: Number(p.tumbler) };
+  } else if (action === 'addWater' || action === 'undoWater') {
+    const goal = S.data.profile.waterGoal;
+    const day = (S.data.water.days[p.date] ||= { goal, total: 0, log: [] });
+    if (action === 'addWater') day.log.push({ t: p.time, ml: p.ml }); else day.log.pop();
+    day.total = day.log.reduce((s, e) => s + e.ml, 0);
+    day.goal = goal;
   }
 }
 
@@ -171,9 +190,11 @@ async function loadSheet({ quiet = false } = {}) {
   if (!S.demo && !S.year) { toast('Choose a year first, or upload one in the Upload tab.', true); return; }
   const btn = $('#loadBtn');
   btn.disabled = true; btn.textContent = 'Loading…';
-  if (!quiet) document.body.classList.add('loading');
+  if (!quiet) setLoader(true, 'Loading your tracker…');
   try {
     const data = await api('read');
+    data.profile ||= { height: null, waterGoal: null, tumbler: null };
+    data.water ||= { days: {} };
     if (hidesPeriod()) data.sheets.period = null;   // male accounts: no period tracking or analysis
     S.data = data;
     buildIndex();
@@ -191,11 +212,13 @@ async function loadSheet({ quiet = false } = {}) {
     }
     renderAll();
     renderGroupEditor();
+    renderProfileBox();
+    if (!quiet) maybePromptProfile();
   } catch (err) {
     toast(err.message, true);
   } finally {
     btn.disabled = false; btn.textContent = 'Load';
-    document.body.classList.remove('loading');
+    if (!quiet) setLoader(false);
   }
 }
 
@@ -213,7 +236,7 @@ function buildIndex() {
   S.idx = {
     products: grid('products'), dos: grid('dos'), habits: grid('habits'),
     period: sh.period ? { dateSet: new Set(sh.period.dates), marked: new Set(sh.period.marked) } : null,
-    weight: sh.weight ? { dateSet: new Set(sh.weight.dates), entries: sh.weight.entries } : null,
+    weight: sh.weight ? { dateSet: new Set(sh.weight.dates), entries: sh.weight.entries, night: (sh.weight.night ||= {}) } : null,
     first: allDates[0], last: allDates[allDates.length - 1],
     year: (allDates[0] || todayKey()).slice(0, 4)
   };
@@ -257,7 +280,7 @@ function renderTab() {
   if (S.tab === 'log') renderLog();
   else if (S.tab === 'buy') renderBuy();
   else if (S.tab === 'analysis') renderAnalysis();
-  else if (S.tab === 'settings') renderGroupEditor();
+  else if (S.tab === 'settings') { renderGroupEditor(); renderProfileBox(); }
   else if (S.tab === 'upload') renderUpload();
   else if (S.tab === 'admin') renderAdmin();
 }
@@ -305,13 +328,45 @@ const currentPeriod = date => date in S.pending.period ? S.pending.period[date] 
 function setPeriod(date, on) { if (on === originalPeriod(date)) delete S.pending.period[date]; else S.pending.period[date] = on; }
 function pendingCount() {
   const p = S.pending;
-  return Object.values(p.grid).reduce((s, o) => s + Object.keys(o).length, 0) + Object.keys(p.period).length + Object.keys(p.weight).length;
+  return Object.values(p.grid).reduce((s, o) => s + Object.keys(o).length, 0) + Object.keys(p.period).length + Object.values(p.weight).reduce((s, o) => s + Object.keys(o).length, 0);
 }
 function pendingDates() {
   const p = S.pending, out = new Set([...Object.keys(p.period), ...Object.keys(p.weight)]);
   Object.values(p.grid).forEach(o => Object.keys(o).forEach(k => out.add(k.slice(0, 10))));
   return out;
 }
+/* weight: morning ('m') lives in the sheet's Weight column, night ('n') in its own column */
+const origW = (date, w) => (w === 'm' ? S.idx.weight.entries : S.idx.weight.night)[date];
+function curW(date, w) {
+  const p = S.pending.weight[date]?.[w];
+  const v = p !== undefined ? p : origW(date, w);
+  return v === undefined || v === '' || isNaN(Number(v)) ? null : Number(v);
+}
+/** most recent weigh-in on or before `date`; night beats morning on the same day */
+function latestWeigh(date) {
+  const iw = S.idx.weight;
+  if (!iw) return null;
+  const days = new Set([...Object.keys(iw.entries), ...Object.keys(iw.night), ...Object.keys(S.pending.weight)]);
+  for (const d of [...days].filter(x => x <= date).sort().reverse()) {
+    const n = curW(d, 'n'), m = curW(d, 'm');
+    if (n !== null || m !== null) return { date: d, kg: n ?? m, when: n !== null ? 'night' : 'morning' };
+  }
+  return null;
+}
+
+/** BMI (WHO bands) plus the healthy weight range for this height */
+function bmiInfo(kg, cm) {
+  const m = cm / 100, bmi = kg / (m * m);
+  const lo = +(18.5 * m * m).toFixed(1), hi = +(24.9 * m * m).toFixed(1);
+  let label, cls, ico, advice;
+  if (bmi < 16) { label = 'Severely underweight'; cls = 'bad'; ico = 'alert-triangle'; advice = `About ${(lo - kg).toFixed(1)} kg below the healthy range. Please speak to a doctor.`; }
+  else if (bmi < 18.5) { label = 'Underweight'; cls = 'warn'; ico = 'alert-triangle'; advice = `About ${(lo - kg).toFixed(1)} kg below the healthy range. Consider eating a bit more or checking with a dietitian.`; }
+  else if (bmi < 25) { label = 'Healthy weight'; cls = 'good'; ico = 'circle-check'; advice = 'Right in the healthy range. Keep it up.'; }
+  else if (bmi < 30) { label = 'Overweight'; cls = 'warn'; ico = 'alert-triangle'; advice = `About ${(kg - hi).toFixed(1)} kg above the healthy range.`; }
+  else { label = 'Obese'; cls = 'bad'; ico = 'alert-octagon'; advice = `About ${(kg - hi).toFixed(1)} kg above the healthy range. Consider checking in with a doctor.`; }
+  return { bmi, label, cls, ico, advice, lo, hi };
+}
+
 function streakEnding(set, date) { let n = 0, k = date; while (set.has(k)) { n++; k = addDays(k, -1); } return n; }
 
 function dayScore(date) {
@@ -380,8 +435,12 @@ function buildSummary(date) {
       if (P.next && date <= addDays(P.next, 10)) pills.push(h('span', { class: 'pill' }, P.late && date >= P.next ? `Period ${plural(P.late, 'day')} late` : `Next period ${fmt(P.next)}`));
     }
   }
-  const w = S.pending.weight[date] ?? S.idx.weight?.entries[date];
-  if (w !== undefined && w !== '') pills.push(h('span', { class: 'pill teal' }, icon('scale'), `${w} kg`));
+  if (S.idx.weight) {
+    const wm = curW(date, 'm'), wn = curW(date, 'n');
+    if (wm !== null || wn !== null) pills.push(h('span', { class: 'pill teal' }, icon('scale'), [wm !== null ? `AM ${wm}` : null, wn !== null ? `PM ${wn}` : null].filter(Boolean).join(' · ') + ' kg'));
+    const lw = latestWeigh(date), cm = S.data.profile?.height;
+    if (lw && cm) { const b = bmiInfo(lw.kg, cm); if (b.cls !== 'good') pills.push(h('span', { class: 'pill ' + b.cls }, icon(b.ico), `BMI ${b.bmi.toFixed(1)} · ${b.label}`)); }
+  }
   const best = ['dos', 'habits'].flatMap(k => (S.idx[k]?.items || []).map(n => ({ n, s: streakEnding(S.idx[k].sets[n], addDays(date, -1)) + (currentGrid(k, n, date) ? 1 : 0) }))).sort((a, b) => b.s - a.s)[0];
   if (best && best.s >= 3) pills.push(h('span', { class: 'pill' }, icon('flame'), `${best.n} · ${best.s} days`));
   const left = sc.total - sc.done;
@@ -454,29 +513,210 @@ function buildDay() {
     paintP();
     body.push(pb);
   }
-  if (S.idx.weight) {
-    const orig = S.idx.weight.entries[date];
-    const val = S.pending.weight[date] ?? (orig ?? '');
-    const prev = Object.keys(S.idx.weight.entries).filter(k => k < date).sort().pop();
-    const inp = h('input', {
-      type: 'number', step: '0.1', min: '20', max: '300', value: val, placeholder: prev ? String(S.idx.weight.entries[prev]) : 'kg',
-      inputmode: 'decimal', 'aria-label': 'Weight in kg', disabled: !S.idx.weight.dateSet.has(date),
-      oninput: e => {
-        const v = e.target.value, o = orig === undefined ? '' : String(orig);
-        if (v === o) delete S.pending.weight[date]; else S.pending.weight[date] = v;
-        tile.classList.toggle('changed', date in S.pending.weight);
-        updateLogMeta();
-      }
-    });
-    const tile = h('div', { class: 'tap weight' + (date in S.pending.weight ? ' changed' : '') }, icon('scale', 'ic'),
-      h('div', null, h('div', { class: 'wrow' }, inp, h('span', null, 'kg')),
-        h('div', { class: 'tn', style: 'margin-top:4px' }, prev ? `Last ${S.idx.weight.entries[prev]} kg · ${fmt(prev)}` : 'Weight')));
-    body.push(tile);
+  if (S.idx.weight) body.push(buildWeightTile(date));
+  if (body.length) {
+    const sec = section('heart-rate-monitor', 'Body', null, h('div', { class: 'tiles-grid' }, body));
+    if (S.idx.weight) {
+      const box = h('div');
+      const paintBmi = () => fill(box, buildBmi(date));
+      paintBmi(); S.countFns.push(paintBmi);
+      sec.append(box);
+    }
+    wrap.append(sec);
   }
-  if (body.length) wrap.append(section('heart-rate-monitor', 'Body', null, h('div', { class: 'tiles-grid' }, body)));
+  wrap.append(buildWater(date));
 
   if (S.idx.products) wrap.append(buildProducts(date));
   return wrap;
+}
+
+function buildWeightTile(date) {
+  const enabled = S.idx.weight.dateSet.has(date);
+  const prev = latestWeigh(addDays(date, -1));
+  const tile = h('div', { class: 'tap weight' + (date in S.pending.weight ? ' changed' : '') });
+  const field = (w, label, ico) => {
+    const orig = origW(date, w);
+    const inp = h('input', {
+      type: 'number', step: '0.1', min: '20', max: '300', value: S.pending.weight[date]?.[w] ?? (orig ?? ''), placeholder: 'kg',
+      inputmode: 'decimal', 'aria-label': `${label} weight in kg`, disabled: !enabled,
+      oninput: e => {
+        const v = e.target.value, o = orig === undefined ? '' : String(orig), pw = S.pending.weight;
+        if (v === o) { if (pw[date]) { delete pw[date][w]; if (!Object.keys(pw[date]).length) delete pw[date]; } }
+        else (pw[date] ||= {})[w] = v;
+        tile.classList.toggle('changed', date in pw);
+        updateLogMeta();
+      }
+    });
+    return h('label', { class: 'wfield' }, h('span', { class: 'wl' }, icon(ico), label), h('div', { class: 'wrow' }, inp, h('span', null, 'kg')));
+  };
+  fill(tile, icon('scale', 'ic'),
+    h('div', { class: 'wfields' }, field('m', 'Morning', 'sunrise'), field('n', 'Night', 'moon')),
+    h('div', { class: 'tn' }, prev ? `Last ${prev.kg} kg (${prev.when}) · ${fmt(prev.date)}` : 'Weight'));
+  return tile;
+}
+
+function buildBmi(date) {
+  const cm = S.data.profile?.height, lw = latestWeigh(date);
+  if (!cm) {
+    return h('div', { class: 'bmi' }, icon('ruler-measure'), h('div', null, h('b', null, 'Add your height to see BMI'),
+      h('p', { class: 'sub' }, 'We will warn you when your weight drifts out of the healthy range. ', h('button', { class: 'linkbtn', onclick: () => openProfileDialog() }, 'Set height'))));
+  }
+  if (!lw) return null;
+  const b = bmiInfo(lw.kg, cm);
+  return h('div', { class: 'bmi ' + b.cls }, icon(b.ico), h('div', null,
+    h('b', null, `BMI ${b.bmi.toFixed(1)} · ${b.label}`),
+    h('p', { class: 'sub' }, `${b.advice} Healthy range for ${cm} cm: ${b.lo}–${b.hi} kg. Based on ${lw.kg} kg (${lw.when}, ${fmt(lw.date)}).`)));
+}
+
+/* ---------- water tracker: a body that fills up ---------- */
+const BODY_SHAPES = {
+  female: '<circle cx="50" cy="20" r="13"/><path d="M36 38 L64 38 L67 58 L60 86 L75 142 L25 142 L40 86 L33 58 Z"/><path d="M33 42 L20 50 L14 98 L23 100 L31 66 Z"/><path d="M67 42 L80 50 L86 98 L77 100 L69 66 Z"/><path d="M33 138 L49 138 L47 228 L36 228 Z"/><path d="M51 138 L67 138 L64 228 L53 228 Z"/>',
+  male: '<circle cx="50" cy="20" r="13"/><path d="M28 38 L72 38 L69 100 L65 128 L35 128 L31 100 Z"/><path d="M29 41 L16 50 L10 108 L21 110 L30 68 Z"/><path d="M71 41 L84 50 L90 108 L79 110 L70 68 Z"/><path d="M35 124 L49 124 L47 228 L35 228 Z"/><path d="M51 124 L65 124 L65 228 L53 228 Z"/>'
+};
+const WAVE_PATH = 'M-100 4 Q-75 -3 -50 4 T0 4 T50 4 T100 4 T150 4 T200 4 V260 H-100 Z';
+const svgBox = html => { const d = document.createElement('div'); d.innerHTML = html; return d.firstElementChild; };
+const nowHM = () => { const d = new Date(); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const mlText = ml => Math.round(ml).toLocaleString('en-IN');
+
+function buildWater(date) {
+  const prof = S.data.profile, ready = prof.waterGoal && prof.tumbler;
+  if (!ready) {
+    return section('glass-full', 'Water tracker', null, h('div', { class: 'card water-card' },
+      h('div', { class: 'water-info' }, h('b', null, 'Set up your water goal'),
+        h('p', { class: 'sub' }, 'Choose how much you want to drink each day and the size of your tumbler, then tap to fill your body up.'),
+        h('button', { class: 'btn primary', onclick: () => openProfileDialog() }, icon('droplet'), 'Set up'))));
+  }
+  const goal = prof.waterGoal, tumbler = prof.tumbler;
+  const shape = viewedGender() === 'female' ? BODY_SHAPES.female : BODY_SHAPES.male;
+  const fig = svgBox(`<svg viewBox="0 0 100 240" role="img" aria-label="Body filling with water">
+    <defs><clipPath id="wclip">${shape}</clipPath></defs>
+    <g class="outline">${shape}</g>
+    <g class="shape">${shape}</g>
+    <g clip-path="url(#wclip)"><g class="water-level"><g class="water-wave"><path d="${WAVE_PATH}" fill="var(--water)" opacity=".85"/></g></g></g></svg>`);
+  const level = $('.water-level', fig);
+
+  const total = h('div', { class: 'water-total' }), sub = h('p', { class: 'sub' }), logBox = h('div', { class: 'water-log' });
+  const undoBtn = h('button', { class: 'btn small ghost', onclick: () => change(() => undoWater(date)) }, icon('arrow-back-up'), 'Undo last');
+  const inRange = date >= S.idx.first && date <= S.idx.last;
+  const paint = () => {
+    const day = S.data.water.days[date] || { total: 0, log: [] };
+    const p = day.total / goal;
+    level.style.transform = `translateY(${7 + (1 - Math.min(p, 1)) * 223}px)`;
+    fill(total, mlText(day.total), h('small', null, ` / ${mlText(goal)} ml · ${Math.round(p * 100)}%`));
+    const left = goal - day.total;
+    sub.textContent = !day.total ? `Nothing yet. Tap the tumbler when you drink.`
+      : left > 0 ? `${mlText(left)} ml to go, about ${plural(Math.ceil(left / tumbler), 'tumbler')}.`
+      : `Goal reached${day.total > goal ? ` (+${mlText(day.total - goal)} ml extra)` : ''}. Well done!`;
+    fill(logBox, day.log.map(e => h('span', { class: 'tag' }, `${e.t} · +${e.ml} ml`)));
+    undoBtn.disabled = !day.log.length;
+  };
+  const change = fn => { fn(); paint(); };
+  const glass = svgBox('<svg viewBox="0 0 40 56"><defs><clipPath id="gclip"><path d="M5 3 H35 L31 50 Q31 54 27 54 H13 Q9 54 9 50 Z"/></clipPath></defs><path d="M5 3 H35 L31 50 Q31 54 27 54 H13 Q9 54 9 50 Z" fill="none" stroke="var(--water)" stroke-width="2.5" stroke-linejoin="round"/><rect x="0" y="20" width="40" height="40" fill="var(--water)" clip-path="url(#gclip)"/></svg>');
+  const custom = h('input', { type: 'number', min: '1', max: '3000', step: '10', placeholder: 'ml', inputmode: 'numeric', 'aria-label': 'Custom amount in ml' });
+  const addCustom = e => { e.preventDefault(); const ml = Number(custom.value); if (!(ml >= 1 && ml <= 3000)) return toast('Enter between 1 and 3000 ml.', true); change(() => drinkWater(date, ml)); custom.value = ''; };
+
+  const card = h('div', { class: 'card water-card' },
+    h('div', { class: 'water-body' }, fig),
+    h('div', { class: 'water-info' }, total, sub,
+      h('div', { class: 'water-actions' },
+        h('button', { class: 'glass-btn', disabled: !inRange, onclick: () => change(() => drinkWater(date, tumbler)), 'aria-label': `Add one tumbler, ${tumbler} ml` },
+          glass, h('span', null, `+ ${mlText(tumbler)} ml`, h('small', null, 'one tumbler'))),
+        h('form', { class: 'water-custom', onsubmit: addCustom }, custom, h('button', { class: 'btn ghost', disabled: !inRange }, icon('plus'), 'Add')),
+        undoBtn),
+      logBox));
+  paint();
+  return section('glass-full', 'Water tracker', () => `${mlText(S.data.water.days[date]?.total || 0)} ml`, card);
+}
+
+/** Updates the screen straight away, then tells the sheet; reloads from the sheet if that fails. */
+async function sendWater(action, payload) {
+  if (S.readOnly) return toast('This is a read-only view.', true);
+  applyLocal(action, payload);
+  S.countFns.forEach(f => f());
+  if (S.demo) return;
+  try { await api(action, payload); }
+  catch (err) { toast(err.message, true); loadSheet({ quiet: true }); }
+}
+function drinkWater(date, ml) {
+  const before = S.data.water.days[date]?.total || 0, goal = S.data.profile.waterGoal;
+  sendWater('addWater', { date, ml: Math.round(ml), time: nowHM() });
+  if (before < goal && before + ml >= goal) toast('Daily water goal reached! 🎉');
+}
+function undoWater(date) { sendWater('undoWater', { date }); }
+
+/* ---------- height, water goal and tumbler setup ---------- */
+function profileForm(onDone, onCancel) {
+  const cur = S.data.profile || {}, last = store.get('profile', {});
+  const val = k => cur[k] || last[k] || '';
+  const num = (v, ph, extra = {}) => h('input', { type: 'number', inputmode: 'decimal', placeholder: ph, value: v, required: true, ...extra });
+  const height = num(val('height'), 'e.g. 160', { min: '80', max: '250', step: '0.5' });
+  const goal = num(val('waterGoal') || 2000, 'ml', { min: '500', max: '10000', step: '50' });
+  const tumbler = num(val('tumbler') || 250, 'ml', { min: '50', max: '3000', step: '10' });
+  const chips = (input, opts) => h('div', { class: 'chips' }, opts.map(([ml, lbl]) => h('button', { type: 'button', class: 'chip', onclick: () => { input.value = ml; sync(); } }, lbl)));
+  const sync = () => $$('.chip', form).forEach(c => { const inp = c.parentNode.previousElementSibling; c.setAttribute('aria-pressed', String(inp && Number(inp.value) === Number(c.dataset.ml))); });
+  const status = h('p', { class: 'sub err' });
+  const form = h('form', {
+    class: 'profile-form',
+    onsubmit: async e => {
+      e.preventDefault();
+      const p = { height: Number(height.value), waterGoal: Number(goal.value), tumbler: Number(tumbler.value) };
+      const btn = $('button[type=submit]', form);
+      btn.disabled = true; status.textContent = '';
+      try {
+        await api('saveProfile', p);
+        if (!S.demo) applyLocal('saveProfile', p);
+        store.set('profile', p);
+        toast('Saved');
+        onDone();
+      } catch (err) { status.textContent = err.message; btn.disabled = false; }
+    }
+  },
+    h('label', null, 'Height (cm)', height),
+    h('label', null, 'Daily water goal (ml)', goal, chips(goal, [[1500, '1.5 L'], [2000, '2 L'], [2500, '2.5 L'], [3000, '3 L']])),
+    h('label', null, 'Tumbler size (ml)', tumbler, chips(tumbler, [[250, '250'], [350, '350'], [500, '500'], [750, '750'], [1000, '1 L']])),
+    h('p', { class: 'sub' }, 'You can also add any custom amount while logging water.'),
+    status,
+    h('div', { class: 'row-actions' }, h('button', { class: 'btn primary', type: 'submit' }, 'Save'), onCancel ? h('button', { class: 'btn ghost', type: 'button', onclick: onCancel }, 'Later') : null));
+  $$('.chip', form).forEach(c => { c.dataset.ml = c.textContent.includes('L') ? parseFloat(c.textContent) * 1000 : c.textContent; });
+  [height, goal, tumbler].forEach(i => i.addEventListener('input', sync));
+  sync();
+  return form;
+}
+
+function openProfileDialog() {
+  if (S.readOnly) return toast('This is a read-only view.', true);
+  const dlg = h('dialog', { class: 'modal' });
+  const close = () => { dlg.close(); dlg.remove(); };
+  const done = () => { close(); if (S.data) { renderAll(); renderProfileBox(); } };
+  dlg.append(h('div', { class: 'card' }, h('h2', null, 'Set up body & water'),
+    h('p', { class: 'sub' }, 'Height gives you BMI and a healthy weight range. The goal and tumbler power the water tracker.'),
+    profileForm(done, close)));
+  dlg.addEventListener('cancel', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
+}
+
+/** asks once per file when height / water goal / tumbler have never been set */
+function maybePromptProfile() {
+  const p = S.data.profile;
+  if (S.readOnly || S.demo || (p.height && p.waterGoal && p.tumbler)) return;
+  const key = `${S.viewUid}_${S.year}`;
+  (S.profileAsked ||= new Set());
+  if (S.profileAsked.has(key)) return;
+  S.profileAsked.add(key);
+  openProfileDialog();
+}
+
+function renderProfileBox() {
+  const box = $('#profileBox');
+  if (!box) return;
+  if (!S.data) { fill(box, h('p', { class: 'sub' }, 'Load your sheet to edit these.')); return; }
+  if (S.readOnly) {
+    const p = S.data.profile;
+    fill(box, h('p', { class: 'sub' }, `Height ${p.height || '—'} cm · Goal ${p.waterGoal || '—'} ml · Tumbler ${p.tumbler || '—'} ml (read-only)`));
+    return;
+  }
+  fill(box, profileForm(() => { renderProfileBox(); if (S.tab === 'log') renderLog(); }));
 }
 
 function buildProducts(date) {
@@ -586,7 +826,7 @@ async function saveAll() {
     for (const [key, on] of Object.entries(p.grid[k])) day(key.slice(0, 10)).grid[k][key.slice(11)] = on;
   }
   for (const [d, on] of Object.entries(p.period)) day(d).period = on;
-  for (const [d, w] of Object.entries(p.weight)) day(d).weight = w === '' ? '' : Number(w);
+  for (const [d, w] of Object.entries(p.weight)) day(d).weight = Object.fromEntries(Object.entries(w).map(([k, v]) => [k, v === '' ? '' : Number(v)]));
   const list = Object.values(days).sort((a, b) => a.date < b.date ? -1 : 1);
   const btn = $('#saveDayBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
@@ -1097,6 +1337,7 @@ function viewOverview(win, body) {
   if (P.next) tiles.append(tile('Next period', fmt(P.next), P.late ? `Late by ${plural(P.late, 'day')}` : `in ${plural(Math.max(0, diffDays(t, P.next)), 'day')}${P.estimated ? ' · estimate' : ''}`, P.late ? 'down' : ''));
   if (W && W.n) tiles.append(tile('Weight', `${W.latest[1]} kg`, W.n > 1 ? `${W.latest[1] - W.first[1] >= 0 ? '+' : ''}${(W.latest[1] - W.first[1]).toFixed(1)} kg since ${fmt(W.first[0])}` : 'First weigh-in'));
   else if (W) tiles.append(tile('Weight', '—', 'No weigh-ins in this period'));
+  if (W && W.n && S.data.profile?.height) { const b = bmiInfo(W.latest[1], S.data.profile.height); tiles.append(tile('BMI', b.bmi.toFixed(1), b.label, b.cls === 'good' ? 'up' : 'down')); }
   if (cm) tiles.append(tile(`${curMonth} buy list`, rupee(cm.planned), cm.budget ? `of ${rupee(cm.budget)} budget · ${cm.boughtCount}/${cm.items.length} bought` : `${cm.boughtCount}/${cm.items.length} bought`));
   body.append(tiles);
 
@@ -1118,6 +1359,7 @@ function viewOverview(win, body) {
   P.flags.slice(0, 2).forEach(f => ins.push(['⚠️', f]));
   const due = analyzeSpending().restock.filter(r => r.status === 'overdue' || r.status === 'soon');
   if (due.length) ins.push(['🛒', `Restock due: ${due.slice(0, 5).map(r => r.name).join(', ')}.`]);
+  if (W && W.n && S.data.profile?.height) { const b = bmiInfo(W.latest[1], S.data.profile.height); if (b.cls !== 'good') ins.push(['⚠️', `BMI ${b.bmi.toFixed(1)} (${b.label.toLowerCase()}). ${b.advice} Healthy range: ${b.lo}–${b.hi} kg.`]); }
   if (W && W.slope !== null) ins.push(['⚖️', `Weight trend: ${W.slope * 7 >= 0 ? '+' : ''}${(W.slope * 7).toFixed(2)} kg per week over ${plural(W.n, 'weigh-in')}.`]);
 
   const g = h('div', { class: 'grid-2' });
@@ -1168,6 +1410,7 @@ function viewGrid(k, win, body) {
     data: {
       labels: A.logged.map(d => fmt(d)), datasets: [
         { label: 'Daily', data: pctScore, borderColor: css('--line'), backgroundColor: css('--ink-3'), borderWidth: 1, pointRadius: 3 },
+        { label: 'Night', data: W.pts.map(p => night[p[0]] ?? null), borderColor: 'transparent', backgroundColor: css('--water'), pointRadius: 3 },
         { label: '7-day average', data: rolling(pctScore, 7).map(v => v === null ? null : Math.round(v)), borderColor: css('--accent'), backgroundColor: css('--accent'), borderWidth: 2, pointRadius: 0, tension: .3 }
       ]
     },
@@ -1336,12 +1579,19 @@ function viewWeight(win, body) {
   if (!W) { body.append(h('p', { class: 'empty' }, 'No weight sheet found.')); return; }
   if (!W.n) { body.append(h('p', { class: 'empty' }, `No weigh-ins logged for ${windowLabel(win)}. Add one from “Log a day”.`)); return; }
   const change = W.latest[1] - W.first[1];
+  const cm = S.data.profile?.height, bmi = cm ? bmiInfo(W.latest[1], cm) : null;
+  const night = S.idx.weight.night;
+  const pairs = Object.keys(night).filter(d => d >= win[0] && d <= win[1] && S.idx.weight.entries[d] !== undefined);
+  const swing = pairs.length ? mean(pairs.map(d => night[d] - S.idx.weight.entries[d])) : null;
+  if (bmi && bmi.cls !== 'good') body.append(h('div', { class: 'bmi ' + bmi.cls, style: 'margin:0 0 16px' }, icon(bmi.ico), h('div', null, h('b', null, `BMI ${bmi.bmi.toFixed(1)} · ${bmi.label}`), h('p', { class: 'sub' }, `${bmi.advice} Healthy range for ${cm} cm: ${bmi.lo}–${bmi.hi} kg.`))));
   body.append(h('div', { class: 'tiles' },
     tile('Latest', `${W.latest[1]} kg`, fmt(W.latest[0])),
     tile('Change', `${change >= 0 ? '+' : ''}${change.toFixed(1)} kg`, `since ${fmt(W.first[0])}`, change < 0 ? 'up' : change > 0 ? 'down' : ''),
     tile('Weekly trend', W.slope !== null ? `${W.slope * 7 >= 0 ? '+' : ''}${(W.slope * 7).toFixed(2)} kg` : '—', W.slope !== null ? 'per week (best-fit line)' : 'Needs 3+ weigh-ins'),
     tile('Range', `${W.minP[1]}–${W.maxP[1]} kg`, `low ${fmt(W.minP[0])} · high ${fmt(W.maxP[0])}`),
     tile('Weigh-ins', W.n, `${pct(W.n / W.span)} of days since the first one`),
+    bmi ? tile('BMI', bmi.bmi.toFixed(1), `${bmi.label} · healthy ${bmi.lo}–${bmi.hi} kg`, bmi.cls === 'good' ? 'up' : 'down') : null,
+    swing !== null ? tile('Day swing', `${swing >= 0 ? '+' : ''}${(swing * 1000).toFixed(0)} g`, `night vs morning, avg of ${plural(pairs.length, 'day')}`) : null,
     W.slope !== null && W.n >= 5 ? tile('In 30 days, at this pace', `${(W.latest[1] + W.slope * 30).toFixed(1)} kg`, 'Rough projection') : null
   ));
   const cv = h('canvas');
@@ -1351,7 +1601,7 @@ function viewWeight(win, body) {
     type: 'line',
     data: {
       labels: W.pts.map(p => fmt(p[0])), datasets: [
-        { label: 'Weigh-in', data: W.pts.map(p => p[1]), borderColor: css('--line'), backgroundColor: css('--ink-3'), borderWidth: 1, pointRadius: 3 },
+        { label: 'Morning', data: W.pts.map(p => p[1]), borderColor: css('--line'), backgroundColor: css('--ink-3'), borderWidth: 1, pointRadius: 3 },
         { label: '7-day average', data: W.ma7.map(v => +v.toFixed(2)), borderColor: css('--accent'), backgroundColor: css('--accent'), borderWidth: 2, pointRadius: 0, tension: .3 }
       ]
     },
@@ -1459,9 +1709,11 @@ function makeDemoData() {
   const period = [];
   for (const [s, len] of [[`${year}-09-04`, 5], [`${year}-10-02`, 4], [`${year}-10-30`, 5]]) rangeDays(s, addDays(s, len - 1)).forEach(d => { if (d < t) period.push(d); });
   if (`${year}-09-15` < t) period.push(`${year}-09-15`);
-  const entries = {};
+  const entries = {}, nightW = {};
   let w = 64.8;
-  past.forEach(d => { w += (rnd() - .55) * .35; if (rnd() > .25) entries[d] = +w.toFixed(1); });
+  past.forEach(d => { w += (rnd() - .55) * .35; if (rnd() > .25) entries[d] = +w.toFixed(1); if (rnd() > .4) nightW[d] = +(w + .4 + rnd() * .5).toFixed(1); });
+  const waterDays = {};
+  past.slice(-14).forEach(d => { const log = []; let tt = 8 * 60; const n = 4 + Math.floor(rnd() * 6); for (let i = 0; i < n; i++) { log.push({ t: `${pad(Math.floor(tt / 60))}:${pad(tt % 60)}`, ml: rnd() > .3 ? 250 : 350 }); tt += 60 + Math.floor(rnd() * 70); } waterDays[d] = { goal: 2000, total: log.reduce((s, e) => s + e.ml, 0), log }; });
   const buy = { sheetName: 'Month List To buy', slots: 11, months: {} };
   MONTHS.forEach(m => { buy.months[m] = []; });
   buy.months.September = [{ product: 'Coconut oil', cost: 220 }, { product: 'Bodywise body wash', cost: 499 }, { product: 'Tea varieties', cost: 350 }, { product: 'Brush', cost: 90 }];
@@ -1473,9 +1725,11 @@ function makeDemoData() {
     sheets: {
       products: prod, dos: gridOf(dos, dosP), habits: gridOf(habits, habP, .25),
       period: { sheetName: '', dates, marked: period.sort() },
-      weight: { sheetName: '', dates, entries },
+      weight: { sheetName: '', dates, entries, night: nightW },
       buy
     },
+    profile: { height: 162, waterGoal: 2000, tumbler: 250 },
+    water: { days: waterDays },
     budgets: { September: 1500, October: 4000, November: 1200 }
   };
 }
@@ -1518,6 +1772,7 @@ async function onAuthChange(profile, msg) {
   if (!profile) {
     Object.assign(S, { user: null, members: [], years: [], year: null, viewUid: null, demo: false, pending: freshPending(), buyDraft: null, buyDirty: false });
     clearSheet();
+    setLoader(false);
     showAuth(msg);
     return;
   }
@@ -1533,6 +1788,7 @@ async function onAuthChange(profile, msg) {
   fillUserSelect();
   await refreshYears();
   if (S.year) { await loadSheet(); switchTab('log'); } else { clearSheet(); switchTab('upload'); }
+  setLoader(false);
 }
 
 function fillUserSelect() {
@@ -1707,7 +1963,7 @@ function init() {
 
   window.addEventListener('beforeunload', e => { if (pendingCount() || S.buyDirty) { e.preventDefault(); e.returnValue = ''; } });
 
-  if (!Account.configured()) return showAuth('Setup needed: fill in config.js (see README).');
+  if (!Account.configured()) { setLoader(false); return showAuth('Setup needed: fill in config.js (see README).'); }
   Account.init(onAuthChange);   // shows the sign-in screen or the app once Firebase answers
 }
 

@@ -59,6 +59,9 @@ function doPost(e) {
           case 'saveDays':     result = saveDays_(ss, req); break;
           case 'saveBuyList':  result = saveBuyList_(ss, req); break;
           case 'markBought':   result = markBought_(ss, req); break;
+          case 'saveProfile':  result = saveProfile_(ss, req); break;
+          case 'addWater':     result = addWater_(ss, req); break;
+          case 'undoWater':    result = undoWater_(ss, req); break;
           default: throw new Error('Unknown action: ' + req.action);
         }
         SpreadsheetApp.flush();
@@ -362,17 +365,18 @@ function parsePeriod_(sh, tz) {
 
 function parseWeight_(sh, tz) {
   var values = sh.getDataRange().getValues();
-  var hRow = -1, dCol = -1, wCol = -1;
+  var hRow = -1, dCol = -1, wCol = -1, nCol = -1;
   for (var r = 0; r < Math.min(10, values.length) && hRow < 0; r++) {
     for (var c = 0; c < values[r].length; c++) {
       var t = norm_(values[r][c]);
       if (t.indexOf('weight') === 0) wCol = c;
+      if (t.indexOf('night') === 0) nCol = c;
       if (t === 'date') dCol = c;
     }
     if (wCol >= 0 && dCol >= 0) hRow = r;
   }
   if (hRow < 0) throw new Error('Could not find the Date / Weight header in "' + sh.getName() + '".');
-  var rows = {}, dates = [], entries = {};
+  var rows = {}, dates = [], entries = {}, night = {};
   for (var r2 = hRow + 1; r2 < values.length; r2++) {
     var d = values[r2][dCol];
     if (!isDate_(d)) continue;
@@ -380,8 +384,162 @@ function parseWeight_(sh, tz) {
     rows[k] = r2; dates.push(k);
     var w = values[r2][wCol];
     if (w !== '' && w !== null && !isNaN(Number(w))) entries[k] = Number(w);
+    if (nCol >= 0) {
+      var nw = values[r2][nCol];
+      if (nw !== '' && nw !== null && !isNaN(Number(nw))) night[k] = Number(nw);
+    }
   }
-  return { sheet: sh, rows: rows, wCol: wCol, dates: dates, entries: entries };
+  return { sheet: sh, hRow: hRow, rows: rows, wCol: wCol, nCol: nCol, dates: dates, entries: entries, night: night };
+}
+
+/** Morning weight lives in the original Weight column; night weight gets its own column, added on first use. */
+function ensureNightCol_(w) {
+  if (w.nCol >= 0) return w.nCol;
+  var col = w.sheet.getLastColumn() + 1;
+  var head = w.sheet.getRange(w.hRow + 1, col);
+  head.setValue('Night Weight (kg)');
+  w.sheet.getRange(w.hRow + 1, w.wCol + 1).copyTo(head, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  w.nCol = col - 1;
+  return w.nCol;
+}
+
+function weightCell_(v) {
+  if (v === '' || v === null) return '';
+  var n = Number(v);
+  if (isNaN(n) || n <= 0 || n > 400) throw new Error('Weight looks wrong: ' + v);
+  return n;
+}
+
+// ---------- body settings (height, water goal, tumbler) ----------
+
+var BODY_SETTINGS = 'Body Settings';
+var PROFILE_KEYS = { height: 'Height (cm)', waterGoal: 'Water goal (ml)', tumbler: 'Tumbler (ml)' };
+
+function readProfile_(ss) {
+  var out = { height: null, waterGoal: null, tumbler: null };
+  var sh = ss.getSheetByName(BODY_SETTINGS);
+  if (!sh) return out;
+  var values = sh.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    var label = norm_(values[r][0]);
+    Object.keys(PROFILE_KEYS).forEach(function (k) {
+      var v = values[r][1];
+      if (label === norm_(PROFILE_KEYS[k]) && v !== '' && !isNaN(Number(v))) out[k] = Number(v);
+    });
+  }
+  return out;
+}
+
+/** req: { height: cm, waterGoal: ml, tumbler: ml } */
+function saveProfile_(ss, req) {
+  var h = Number(req.height), g = Number(req.waterGoal), t = Number(req.tumbler);
+  if (!(h >= 80 && h <= 250)) throw new Error('Height should be between 80 and 250 cm.');
+  if (!(g >= 500 && g <= 10000)) throw new Error('Water goal should be between 500 and 10000 ml.');
+  if (!(t >= 50 && t <= 3000)) throw new Error('Tumbler size should be between 50 and 3000 ml.');
+  var sh = ss.getSheetByName(BODY_SETTINGS);
+  if (!sh) {
+    sh = ss.insertSheet(BODY_SETTINGS);
+    sh.getRange(1, 1, 1, 2).setValues([['Setting', 'Value']])
+      .setFontWeight('bold').setFontColor('#ffffff').setBackground('#2F5496');
+    sh.setColumnWidth(1, 160); sh.setColumnWidth(2, 110); sh.setFrozenRows(1);
+  }
+  sh.getRange(2, 1, 3, 2).setValues([
+    [PROFILE_KEYS.height, Math.round(h * 10) / 10],
+    [PROFILE_KEYS.waterGoal, Math.round(g)],
+    [PROFILE_KEYS.tumbler, Math.round(t)]
+  ]);
+  return { saved: true };
+}
+
+// ---------- water log: Date | Goal (ml) | Total (ml) | Log ----------
+
+var WATER_SHEET = 'Water Log';
+var WATER_SEP = ' | ';
+
+function parseWaterLog_(text) {
+  var out = [];
+  String(text || '').split(WATER_SEP).forEach(function (part) {
+    var m = part.trim().match(/^(\d{2}:\d{2}) \+(\d+)$/);
+    if (m) out.push({ t: m[1], ml: Number(m[2]) });
+  });
+  return out;
+}
+
+function waterLogText_(log) {
+  return log.map(function (e) { return e.t + ' +' + e.ml; }).join(WATER_SEP);
+}
+
+function waterDateKey_(v, tz) {
+  return isDate_(v) ? fmt_(v, tz) : String(v == null ? '' : v).trim();
+}
+
+function readWater_(ss, tz) {
+  var out = { days: {} };
+  var sh = ss.getSheetByName(WATER_SHEET);
+  if (!sh) return out;
+  var values = sh.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    var k = waterDateKey_(values[r][0], tz);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) continue;
+    var total = Number(values[r][2]);
+    out.days[k] = { goal: Number(values[r][1]) || null, total: isNaN(total) ? 0 : total, log: parseWaterLog_(values[r][3]) };
+  }
+  return out;
+}
+
+function getWaterSheet_(ss) {
+  var sh = ss.getSheetByName(WATER_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(WATER_SHEET);
+    sh.getRange(1, 1, 1, 4).setValues([['Date', 'Goal (ml)', 'Total (ml)', 'Log']])
+      .setFontWeight('bold').setFontColor('#ffffff').setBackground('#2F5496');
+    sh.getRange('A:A').setNumberFormat('@');
+    sh.getRange('B:C').setNumberFormat('#,##0');
+    sh.setColumnWidth(1, 100); sh.setColumnWidth(2, 90); sh.setColumnWidth(3, 90); sh.setColumnWidth(4, 420);
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function waterRow_(sh, date, tz, create) {
+  var values = sh.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    if (waterDateKey_(values[r][0], tz) === date) return { row: r + 1, log: parseWaterLog_(values[r][3]) };
+  }
+  if (!create) return null;
+  return { row: Math.max(sh.getLastRow(), 1) + 1, log: [] };
+}
+
+function writeWater_(sh, row, date, goal, log) {
+  var total = log.reduce(function (s, e) { return s + e.ml; }, 0);
+  sh.getRange(row, 1).setNumberFormat('@').setValue(date);
+  sh.getRange(row, 2, 1, 3).setValues([[goal || '', total, waterLogText_(log)]]);
+  return { total: total, goal: goal || null, log: log };
+}
+
+/** req: { date, ml, time:'HH:mm' } */
+function addWater_(ss, req) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var date = String(req.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Invalid date.');
+  var ml = Math.round(Number(req.ml));
+  if (!(ml >= 1 && ml <= 3000)) throw new Error('Enter between 1 and 3000 ml.');
+  var time = /^\d{2}:\d{2}$/.test(String(req.time || '')) ? req.time : Utilities.formatDate(new Date(), tz, 'HH:mm');
+  var sh = getWaterSheet_(ss);
+  var r = waterRow_(sh, date, tz, true);
+  r.log.push({ t: time, ml: ml });
+  return writeWater_(sh, r.row, date, readProfile_(ss).waterGoal, r.log);
+}
+
+/** req: { date } — removes the most recent entry of that day */
+function undoWater_(ss, req) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var date = String(req.date || '');
+  var sh = ss.getSheetByName(WATER_SHEET);
+  var r = sh && waterRow_(sh, date, tz, false);
+  if (!r || !r.log.length) return { total: 0, goal: null, log: [] };
+  r.log.pop();
+  return writeWater_(sh, r.row, date, readProfile_(ss).waterGoal, r.log);
 }
 
 // ---------- month buy list ----------
@@ -459,10 +617,12 @@ function readAll_(ss) {
   var p = findSheet_(ss, SHEETS.period);
   if (p) { var pp = parsePeriod_(p, tz); out.sheets.period = { sheetName: p.getName(), dates: pp.dates, marked: pp.marked }; }
   var w = findSheet_(ss, SHEETS.weight);
-  if (w) { var ww = parseWeight_(w, tz); out.sheets.weight = { sheetName: w.getName(), dates: ww.dates, entries: ww.entries }; }
+  if (w) { var ww = parseWeight_(w, tz); out.sheets.weight = { sheetName: w.getName(), dates: ww.dates, entries: ww.entries, night: ww.night }; }
   var b = findSheet_(ss, SHEETS.buy);
   if (b) { var bb = parseBuy_(b); out.sheets.buy = { sheetName: b.getName(), months: bb.months, slots: bb.slots.length }; }
   out.budgets = readBudgets_(ss);
+  out.profile = readProfile_(ss);
+  out.water = readWater_(ss, tz);
   return out;
 }
 
@@ -470,7 +630,7 @@ function readAll_(ss) {
  * req: { date:'yyyy-MM-dd',
  *        grid: { products:{name:true|false}, dos:{...}, habits:{...} },
  *        period: true|false|undefined,
- *        weight: number | '' | undefined }
+ *        weight: { m?: number|'', n?: number|'' } (morning / night) | undefined }
  */
 function saveDay_(ss, req) {
   var tz = ss.getSpreadsheetTimeZone();
@@ -503,10 +663,16 @@ function saveDay_(ss, req) {
     var w = parseWeight_(findSheet_(ss, SHEETS.weight), tz);
     var row = w.rows[date];
     if (row === undefined) throw new Error(date + ' is not in the weight sheet.');
-    var val = req.weight === '' ? '' : Number(req.weight);
-    if (val !== '' && (isNaN(val) || val <= 0 || val > 400)) throw new Error('Weight looks wrong: ' + req.weight);
-    w.sheet.getRange(row + 1, w.wCol + 1).setValue(val);
-    changed++;
+    var wt = typeof req.weight === 'object' ? req.weight : { m: req.weight };   // a plain number means morning
+    if (wt.m !== undefined) {
+      w.sheet.getRange(row + 1, w.wCol + 1).setValue(weightCell_(wt.m));
+      changed++;
+    }
+    if (wt.n !== undefined) {
+      var nv = weightCell_(wt.n);
+      if (nv !== '' || w.nCol >= 0) w.sheet.getRange(row + 1, ensureNightCol_(w) + 1).setValue(nv);
+      changed++;
+    }
   }
   return { changed: changed };
 }

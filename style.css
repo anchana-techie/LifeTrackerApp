@@ -20,6 +20,8 @@
   --good: #0F6E56;
   --warn: #A86A0C;
   --bad: #C0392B;
+  --water: #2F8FE0;
+  --water-soft: #E3F0FC;
   --radius: 18px;
   --radius-sm: 12px;
   --shadow: 0 1px 2px rgba(4, 52, 44, .04), 0 6px 20px rgba(4, 52, 44, .05);
@@ -35,6 +37,7 @@
     --accent: #1D9E75; --accent-strong: #5DCAA5; --accent-soft: #10302A; --done: #1D9E75; --miss: #22312D;
     --orange: #E0784F; --pink: #E06B95; --pink-soft: #3A1C29; --pink-ink: #F4C0D1;
     --good: #5DCAA5; --warn: #EBB04C; --bad: #EF7B6E;
+    --water: #4DA8F0; --water-soft: #15283A;
     --shadow: 0 1px 2px rgba(0,0,0,.4);
   }
 }
@@ -45,6 +48,7 @@
   --accent: #1D9E75; --accent-strong: #5DCAA5; --accent-soft: #10302A; --done: #1D9E75; --miss: #22312D;
   --orange: #E0784F; --pink: #E06B95; --pink-soft: #3A1C29; --pink-ink: #F4C0D1;
   --good: #5DCAA5; --warn: #EBB04C; --bad: #EF7B6E;
+  --water: #4DA8F0; --water-soft: #15283A;
   --shadow: 0 1px 2px rgba(0,0,0,.4);
 }
 
@@ -186,10 +190,60 @@ main { max-width: 1180px; margin: 0 auto; padding: 22px 32px 120px; }
 .tap:disabled { opacity: .45; cursor: default; }
 .tap .tag-mini { font-size: .68rem; font-weight: 700; color: var(--accent-strong); background: var(--accent-soft); border-radius: 999px; padding: 1px 7px; align-self: flex-start; }
 .tap.on .tag-mini { background: rgba(255,255,255,.2); color: #fff; }
-.tap.weight { cursor: default; }
-.tap.weight input { width: 100%; padding: 6px 8px; font-weight: 700; font-size: 1rem; }
+.tap.weight { cursor: default; grid-column: span 2; }
+.tap.weight .wfields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tap.weight .wfield { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tap.weight .wl { display: flex; align-items: center; gap: 4px; font-size: .74rem; font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; }
+.tap.weight input { width: 100%; min-width: 0; padding: 6px 8px; font-weight: 700; font-size: 1rem; }
 .tap.weight .wrow { display: flex; align-items: center; gap: 6px; }
 .tap.weight .wrow span { font-size: .8rem; color: var(--ink-3); }
+
+/* BMI note */
+.bmi { display: flex; gap: 12px; align-items: flex-start; margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: var(--surface-2); border: 1px solid var(--line); }
+.bmi > .ti { font-size: 1.4rem; margin-top: 1px; }
+.bmi .sub { margin: 2px 0 0; }
+.bmi.good > .ti { color: var(--good); }
+.bmi.warn { background: color-mix(in srgb, var(--warn) 14%, var(--surface)); border-color: var(--warn); }
+.bmi.warn > .ti { color: var(--warn); }
+.bmi.bad { background: color-mix(in srgb, var(--bad) 14%, var(--surface)); border-color: var(--bad); }
+.bmi.bad > .ti { color: var(--bad); }
+
+/* water tracker */
+.water-card { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+.water-body { width: 120px; flex: none; }
+.water-body svg { width: 100%; height: auto; display: block; overflow: visible; }
+.water-body .outline { fill: var(--line); stroke: var(--line); stroke-width: 5; stroke-linejoin: round; }
+.water-body .shape { fill: var(--surface-2); }
+.water-level { transition: transform 1s cubic-bezier(.3, .8, .3, 1); }
+.water-wave { animation: wave 3s linear infinite; }
+@keyframes wave { to { transform: translateX(-50px); } }
+.water-info { flex: 1 1 260px; min-width: 0; }
+.water-total { font-size: 1.9rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; font-variant-numeric: tabular-nums; color: var(--water); }
+.water-total small { font-size: .9rem; font-weight: 600; color: var(--ink-3); letter-spacing: 0; }
+.water-info .sub { margin: 4px 0 12px; }
+.water-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: stretch; }
+.glass-btn { display: flex; align-items: center; gap: 10px; font: inherit; font-weight: 700; color: var(--ink); background: var(--water-soft); border: 1px solid var(--water); border-radius: 14px; padding: 8px 14px 8px 10px; cursor: pointer; transition: transform .08s; }
+.glass-btn:active { transform: scale(.95); }
+.glass-btn:disabled { opacity: .5; cursor: default; }
+.glass-btn svg { width: 30px; height: 42px; flex: none; }
+.glass-btn small { display: block; font-weight: 600; color: var(--ink-3); font-size: .74rem; }
+.water-custom { display: flex; gap: 6px; align-items: center; }
+.water-custom input { width: 92px; }
+.water-log { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+.water-log .tag { background: var(--water-soft); color: var(--water); }
+body.readonly .water-actions { pointer-events: none; opacity: .6; }
+
+/* setup dialog + chips */
+.modal { border: 0; padding: 0; background: none; color: var(--ink); max-width: min(440px, calc(100vw - 24px)); width: 100%; }
+.modal::backdrop { background: rgba(0, 0, 0, .55); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.profile-form label { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: .88rem; font-weight: 600; color: var(--ink-2); }
+.profile-form .sub { margin: 4px 0 0; font-weight: 400; }
+.pill.warn { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--warn); }
+.pill.bad { background: color-mix(in srgb, var(--bad) 18%, var(--surface)); color: var(--bad); }
+.profile-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 12px 0; }
+.profile-summary div { background: var(--surface-2); border-radius: 12px; padding: 8px 10px; font-size: .78rem; color: var(--ink-3); font-weight: 600; }
+.profile-summary b { display: block; font-size: 1.05rem; color: var(--ink); }
 .search-row { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
 .search-row .search { flex: 2 1 200px; }
 .search-row form { flex: 1 1 220px; display: flex; gap: 8px; }
@@ -319,7 +373,14 @@ main { max-width: 1180px; margin: 0 auto; padding: 22px 32px 120px; }
   box-shadow: 0 10px 30px rgba(0,0,0,.2); max-width: calc(100vw - 32px);
 }
 .toast.err { background: var(--bad); color: #fff; }
-.loading main { opacity: .55; pointer-events: none; }
+
+/* ---------- full-screen loader ---------- */
+.loader { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: grid; place-items: center; transition: opacity .2s; }
+.loader[hidden] { display: none !important; }
+.loader-box { display: flex; flex-direction: column; align-items: center; gap: 16px; color: var(--ink-2); font-weight: 600; }
+.loader-box p { margin: 0; }
+.spinner { width: 46px; height: 46px; border-radius: 50%; border: 4px solid var(--miss); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* ---------- tablet & phone ---------- */
 @media (max-width: 1000px) { .buy-layout { grid-template-columns: 1fr; } }

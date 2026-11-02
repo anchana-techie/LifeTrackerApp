@@ -282,6 +282,8 @@ main { max-width: 1180px; margin: 0 auto; padding: 22px 32px 120px; }
 .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .chip[aria-pressed="true"] .dot { background: #fff; }
 .buy-layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
+.settings-grid > .settings { display: flex; flex-direction: column; }
+.settings-grid > .wide { grid-column: 1 / -1; }
 .budget-field { display: flex; align-items: center; gap: 8px; font-size: .88rem; font-weight: 600; color: var(--ink-2); }
 .budget-field input { width: 120px; }
 .buy-rows { display: flex; flex-direction: column; gap: 8px; }
@@ -360,9 +362,9 @@ main { max-width: 1180px; margin: 0 auto; padding: 22px 32px 120px; }
 .cal-grid .d.today { outline: 2px solid var(--ink); outline-offset: -2px; }
 
 /* ---------- settings ---------- */
-.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; align-items: start; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; align-items: stretch; }
 .settings label { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; font-size: .88rem; font-weight: 600; color: var(--ink-2); }
-.group-editor { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; max-height: 420px; overflow-y: auto; }
+.group-editor { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; flex: 1; min-height: 220px; contain: size; overflow-y: auto; }
 .group-row { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: .9rem; }
 .group-row .ti { color: var(--accent-strong); font-size: 1.15rem; }
 .group-row select { padding: 6px 8px; font-size: .85rem; }

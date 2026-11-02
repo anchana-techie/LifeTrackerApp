@@ -205,11 +205,20 @@ function detectYear_(ss) {
   throw new Error('This does not look like a tracker file (no Daily Dos / Habits / Products sheet with dates).');
 }
 
-/** req: { year, data: base64 of the .xlsx } */
+/** req: { year, data: base64 of the .xlsx, asUid? } — asUid lets an admin upload on someone's behalf */
 function upload_(auth, req) {
   var year = parseYear_(req.year);
   var member = getMember_(auth);
-  var linkId = auth.uid + '_' + year;
+  var targetUid = auth.uid;
+  if (req.asUid && String(req.asUid) !== auth.uid) {
+    if (member.role !== 'admin') throw new Error('You do not have access to that.');
+    targetUid = String(req.asUid);
+    if (!/^[A-Za-z0-9]{10,40}$/.test(targetUid)) throw new Error('Bad user.');
+    var tdoc = fsGet_('members/' + targetUid, auth.token);
+    if (!tdoc) throw new Error('That person was not found.');
+    member = { userName: fsStr_(tdoc, 'userName'), role: fsStr_(tdoc, 'role') };
+  }
+  var linkId = targetUid + '_' + year;
   if (fsGet_('document_link/' + linkId, auth.token)) {
     throw new Error(year + ' has already been uploaded and cannot be replaced.');
   }
@@ -231,7 +240,7 @@ function upload_(auth, req) {
     if (detected !== year) throw new Error('The dates in this file are for ' + detected + ', not ' + year + '.');
     var link = 'https://docs.google.com/spreadsheets/d/' + created.id + '/edit';
     fsCreate_('document_link', linkId, {
-      userId: { stringValue: auth.uid },
+      userId: { stringValue: targetUid },
       userName: { stringValue: member.userName },
       year: { integerValue: String(year) },
       driveFileId: { stringValue: created.id },

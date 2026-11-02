@@ -1913,6 +1913,29 @@ async function doUpload(e) {
   finally { btn.disabled = false; }
 }
 
+async function doAdminUpload(e) {
+  e.preventDefault();
+  const st = $('#adminUploadStatus'), btn = $('#adminUploadBtn');
+  const uid = $('#adminUploadUser').value, year = Number($('#adminUploadYear').value), file = $('#adminUploadFile').files[0];
+  const member = S.members.find(m => m.uid === uid);
+  const problem = m => { st.textContent = m; st.className = 'sub err'; };
+  st.className = 'sub';
+  if (!member) return problem('Choose a person.');
+  if (!file) return problem('Choose an Excel file.');
+  if (!/\.xlsx$/i.test(file.name)) return problem('Please choose an .xlsx file.');
+  if (file.size > 10 * 1024 * 1024) return problem('That file is larger than 10 MB.');
+  btn.disabled = true; st.textContent = 'Checking…';
+  try {
+    if ((await Account.listYears(uid)).some(r => r.year === year)) return problem(`${year} has already been uploaded for ${member.userName}.`);
+    st.textContent = 'Uploading and converting to Google Sheets — this can take up to a minute…';
+    await api('upload', { year, asUid: uid, data: await fileToBase64(file) });
+    e.target.reset(); st.textContent = '';
+    toast(`${year} uploaded for ${member.userName}`);
+    renderAdmin();
+  } catch (err) { problem(err.message); }
+  finally { btn.disabled = false; }
+}
+
 async function removeYear(member, year) {
   if (!confirm(`Remove ${year} for ${member.userName}?\n\nTheir Google Sheet stays in Drive, but they will be able to upload ${year} again.`)) return;
   try {
@@ -1931,6 +1954,9 @@ async function renderAdmin() {
     S.members = members;
     S.memberYears = Object.fromEntries(members.map((m, i) => [m.uid, years[i]]));
     fillUserSelect();
+    const upSel = $('#adminUploadUser'), prev = upSel.value;
+    fill(upSel, ...members.filter(m => m.role !== 'admin').map(m => h('option', { value: m.uid }, m.userName)));
+    if (prev) upSel.value = prev;
     const driveHref = l => (/^https:\/\/docs\.google\.com\//.test(l) ? l : null);
     fill(memberBox, ...members.map((m, i) => h('div', { class: 'row member' },
       h('div', { class: 'who' }, h('b', null, m.userName), m.role === 'admin' ? h('span', { class: 'pill' }, 'admin') : null, h('div', { class: 'muted' }, m.email)),
@@ -2010,6 +2036,7 @@ function init() {
   });
   $$('#signOutBtn, #topSignOut').forEach(b => b.addEventListener('click', () => { if (confirmDiscard()) Account.signOut(); }));
   $('#uploadForm').addEventListener('submit', doUpload);
+  $('#adminUploadForm').addEventListener('submit', doAdminUpload);
   $('#inviteForm').addEventListener('submit', async e => {
     e.preventDefault();
     try { await Account.addInvite($('#inviteEmail').value); e.target.reset(); toast('Invited'); renderAdmin(); }

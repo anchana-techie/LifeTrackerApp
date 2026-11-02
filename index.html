@@ -214,6 +214,14 @@
             </form>
             <p class="sub">They then register with exactly this email and choose their username.</p>
             <div id="inviteList" class="rows"></div>
+            <h2>Upload for someone</h2>
+            <form id="adminUploadForm">
+              <label>Person <select id="adminUploadUser" required></select></label>
+              <label>Year <input id="adminUploadYear" type="number" min="2000" max="2100" step="1" placeholder="2026" required></label>
+              <label>Excel file <input id="adminUploadFile" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required></label>
+              <div class="row-actions"><button class="btn primary" id="adminUploadBtn" type="submit"><i class="ti ti-upload" aria-hidden="true"></i> Upload</button></div>
+            </form>
+            <p id="adminUploadStatus" class="sub"></p>
           </div>
           <div class="card settings">
             <h2>Members</h2>

@@ -71,12 +71,32 @@ function toast(msg, isErr = false) {
   toast._t = setTimeout(() => { t.hidden = true; }, isErr ? 6000 : 2600);
 }
 
-// full-screen loading overlay
-function setLoader(on, text = 'Loading…') {
+// full-screen loading overlay with rotating motivation
+const QUOTES = [
+  'Small steps every day add up to big change.',
+  'Drink water. Your future self says thanks.',
+  'You do not have to be perfect, just consistent.',
+  'Move your body: even ten minutes counts.',
+  'Eat colourful, feel energetic.',
+  'Progress, not perfection.',
+  'A healthy habit today is a gift to tomorrow.',
+  'Your body hears everything your mind says. Be kind.',
+  'Sip, stretch, smile, repeat.',
+  'Tracking it is the first step to changing it.'
+];
+const loaderQuote = { i: Math.floor(Math.random() * QUOTES.length), t: null };
+function setLoader(on) {
   const l = $('#loader');
   if (!l) return;
-  $('#loaderText').textContent = text;
   l.hidden = !on;
+  clearInterval(loaderQuote.t);
+  if (!on) return;
+  const q = $('#loaderQuote'), show = () => { q.textContent = QUOTES[loaderQuote.i++ % QUOTES.length]; };
+  show();
+  loaderQuote.t = setInterval(() => {
+    q.classList.add('fade');
+    setTimeout(() => { show(); q.classList.remove('fade'); }, 400);
+  }, 2800);
 }
 
 /* =========================================================
@@ -190,7 +210,7 @@ async function loadSheet({ quiet = false } = {}) {
   if (!S.demo && !S.year) { toast('Choose a year first, or upload one in the Upload tab.', true); return; }
   const btn = $('#loadBtn');
   btn.disabled = true; btn.textContent = 'Loading…';
-  if (!quiet) setLoader(true, 'Loading your tracker…');
+  if (!quiet) setLoader(true);
   try {
     const data = await api('read');
     data.profile ||= { height: null, waterGoal: null, tumbler: null };
@@ -1895,6 +1915,7 @@ async function renderAdmin() {
 }
 
 function init() {
+  setLoader(true);
   $$('.nav-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
   applyTheme(store.get('theme', null) || 'auto');
   $$('[data-theme-toggle]').forEach(b => b.addEventListener('click', () => {

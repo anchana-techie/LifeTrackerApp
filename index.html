@@ -261,7 +261,18 @@
   </div>
 </div>
 <div class="loader" id="loader" role="status" aria-live="polite">
-  <div class="loader-box"><span class="spinner" aria-hidden="true"></span><p id="loaderText">Loading…</p></div>
+  <div class="loader-stars" aria-hidden="true"></div>
+  <div class="loader-box">
+    <div class="orbits" aria-hidden="true">
+      <span class="orbit o1"><i class="ti ti-droplet"></i></span>
+      <span class="orbit o2"><i class="ti ti-run"></i></span>
+      <span class="orbit o3"><i class="ti ti-apple"></i></span>
+      <span class="core"><i class="ti ti-check"></i></span>
+    </div>
+    <h2 class="loader-title">Life Tracker</h2>
+    <p class="loader-quote" id="loaderQuote"></p>
+    <div class="loader-bar" aria-hidden="true"><span></span></div>
+  </div>
 </div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 </body>

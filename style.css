@@ -375,12 +375,46 @@ body.readonly .water-actions { pointer-events: none; opacity: .6; }
 .toast.err { background: var(--bad); color: #fff; }
 
 /* ---------- full-screen loader ---------- */
-.loader { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: grid; place-items: center; transition: opacity .2s; }
+.loader {
+  position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 20%, color-mix(in srgb, var(--accent) 22%, var(--bg)), var(--bg) 70%);
+}
 .loader[hidden] { display: none !important; }
-.loader-box { display: flex; flex-direction: column; align-items: center; gap: 16px; color: var(--ink-2); font-weight: 600; }
-.loader-box p { margin: 0; }
-.spinner { width: 46px; height: 46px; border-radius: 50%; border: 4px solid var(--miss); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+.loader-stars { position: absolute; inset: 0; opacity: .7;
+  background-image:
+    radial-gradient(1.5px 1.5px at 12% 18%, var(--ink-3), transparent), radial-gradient(1px 1px at 28% 72%, var(--ink-3), transparent),
+    radial-gradient(1.5px 1.5px at 44% 34%, var(--ink-3), transparent), radial-gradient(1px 1px at 63% 12%, var(--ink-3), transparent),
+    radial-gradient(1.5px 1.5px at 78% 58%, var(--ink-3), transparent), radial-gradient(1px 1px at 90% 26%, var(--ink-3), transparent),
+    radial-gradient(1px 1px at 8% 86%, var(--ink-3), transparent), radial-gradient(1.5px 1.5px at 55% 90%, var(--ink-3), transparent),
+    radial-gradient(1px 1px at 92% 82%, var(--ink-3), transparent); animation: twinkle 4s ease-in-out infinite alternate; }
+@keyframes twinkle { from { opacity: .35; } to { opacity: .8; } }
+.loader-box { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 0 24px; max-width: 460px; }
+.orbits { position: relative; width: 240px; height: 240px; display: grid; place-items: center; margin-bottom: 18px; }
+.core {
+  width: 76px; height: 76px; border-radius: 50%; display: grid; place-items: center; font-size: 2rem; color: #fff;
+  background: radial-gradient(circle at 35% 30%, #5DCAA5, var(--accent) 60%, var(--accent-strong));
+  box-shadow: 0 0 40px color-mix(in srgb, var(--accent) 55%, transparent); animation: breathe 2.4s ease-in-out infinite;
+}
+@keyframes breathe { 50% { transform: scale(1.08); } }
+.orbit { position: absolute; top: 50%; left: 50%; translate: -50% -50%; border-radius: 50%; border: 1.5px dashed color-mix(in srgb, currentColor 45%, transparent); animation: spin linear infinite; }
+.orbit > i {
+  position: absolute; top: -17px; left: calc(50% - 17px); width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 1.15rem; background: var(--surface); box-shadow: var(--shadow); border: 1px solid currentColor; animation: spin linear infinite reverse;
+}
+.o1 { width: 130px; height: 130px; animation-duration: 3.2s; color: var(--water); }
+.o1 > i { animation-duration: 3.2s; }
+.o2 { width: 184px; height: 184px; animation-duration: 5s; animation-direction: reverse; color: var(--orange); }
+.o2 > i { animation-duration: 5s; animation-direction: normal; }
+.o3 { width: 238px; height: 238px; animation-duration: 7.5s; color: var(--accent); }
+.o3 > i { animation-duration: 7.5s; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.loader-title { font-size: 1.6rem; letter-spacing: -.02em; }
+.loader-quote { margin: 8px 0 18px; min-height: 3.2em; color: var(--ink-2); font-weight: 500; font-size: 1rem; transition: opacity .4s; }
+.loader-quote.fade { opacity: 0; }
+.loader-bar { width: min(320px, 70vw); height: 6px; border-radius: 99px; background: var(--miss); overflow: hidden; }
+.loader-bar span { display: block; width: 40%; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--water), var(--accent)); animation: slide 1.4s ease-in-out infinite; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+@media (prefers-reduced-motion: reduce) { .orbit, .orbit > i, .core, .loader-bar span, .loader-stars { animation: none; } }
 
 /* ---------- tablet & phone ---------- */
 @media (max-width: 1000px) { .buy-layout { grid-template-columns: 1fr; } }

@@ -2233,6 +2233,8 @@ async function onAuthChange(profile, msg) {
   const admin = profile.role === 'admin';
   $('#navAdmin').hidden = !admin;
   $('#navUpload').hidden = admin;   // admins do not upload files for themselves
+  // an admin only sees completion across everyone: no personal pages, no files, no tasks, no assistant
+  $$('.nav-btn').forEach(b => { if (['buy', 'files', 'tasks', 'timegen', 'assistant'].includes(b.dataset.tab)) b.hidden = admin; });
   S.members = []; S.memberYears = {};
   if (admin) {
     try { S.members = (await Account.listMembers()).filter(m => !m.deleted); await loadMemberYears(); } catch (err) { toast(err.message, true); }
@@ -2270,7 +2272,7 @@ async function loadMemberYears() {
 }
 
 function fillUserSelect() {
-  const sel = $('#userSelect'), show = S.user.role === 'admin' && S.members.length > 0;
+  const sel = $('#userSelect'), show = false;   // admins only see the Everyone completion view, never one person's tracker
   sel.hidden = !show; $('#userIcon').hidden = !show;
   // the admin does not keep a tracker, so only list members who have uploaded something
   const people = S.members.filter(m => m.uid !== S.user.uid || (S.memberYears[m.uid] || []).length || m.uid === S.viewUid);
@@ -2294,6 +2296,7 @@ async function refreshYears(preferred) {
 }
 
 async function viewPerson(uid) {
+  if (uid !== 'all') return;   // no per-person view: admins see completion across everyone only
   if (uid === 'all') {
     await enterGroup();
     switchTab(['log', 'buy', 'analysis'].includes(S.tab) ? S.tab : 'log');
@@ -2333,6 +2336,7 @@ async function renderFiles() {
   const list = $('#filesList');
   if (S.demo) { fill(list, h('p', { class: 'sub' }, 'Files are not available in demo mode.')); fill($('#filesViewer')); return; }
   const admin = S.user.role === 'admin';
+  if (admin) { fill(list, h('p', { class: 'sub' }, 'Members’ files are private. Admins only see completion in the Today and Insights tabs.')); fill($('#filesViewer')); return; }
   try {
     if (admin) { S.members = (await Account.listMembers()).filter(m => !m.deleted); await loadMemberYears(); }
     const people = admin ? S.members.filter(m => m.role !== 'admin') : [S.user];
@@ -2668,7 +2672,7 @@ async function renderAdmin() {
         : h('span', { class: 'muted' }, 'No files yet')),
       m.deleted
         ? h('button', { class: 'btn small', onclick: () => removeMember(m, years[i]) }, icon('trash'), 'Remove')
-        : h('button', { class: 'btn small', onclick: () => { $('#userSelect').value = m.uid; viewPerson(m.uid); } }, icon('eye'), 'View'))));
+        : null)));
     fill(inviteBox, ...invites.map(inv => {
       const joined = members.some(m => m.email === inv.email);
       return h('div', { class: 'row' }, h('span', null, inv.email), h('span', { class: 'muted' }, joined ? 'registered' : 'waiting'),

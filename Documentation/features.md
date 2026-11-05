@@ -5,13 +5,13 @@
 | Screen | Who | What it does |
 |---|---|---|
 | Sign in / Register | Everyone | Email + password sign-in, "Forgot password" email, invite-only registration with username, gender, email, password. |
-| Header | Signed in | "Hello, name" on the left, **Sign out** on the right. Year picker; admins also get a person picker. |
+| Header | Signed in | "Hello, name" on the left, **Sign out** on the right. Year picker. |
 | Today | Person | Tap tiles to mark Daily Dos, Habits, products bought, period day (not for male accounts), morning and night weight with a BMI warning, and a water tracker. Day or Week view. Changes are collected and saved together. |
 | Buy list | Person | Plan products and budget per month, mark items bought. |
 | Insights | Person | Overview, Daily Dos, Habits, Period cycle (hidden for male accounts), Weight, Spending and restock; for All tracked, last 30 / 7 days or a month. |
 | Upload | Person | Choose a year and an `.xlsx`; lists the years already uploaded. Or **create next year's file**: start from your latest tasks, add or remove Daily Dos / Habits / Products, then create and upload (or download). |
-| Files | Person, Admin | Read-only tables of an uploaded year's sheets, by month. Members see their own years; the admin can open any member's. |
-| Admin | Admin only | Invite emails, see members and their years, open any person's tracker (read-only), remove a wrong upload. |
+| Files | Person | Read-only tables of your own uploaded years' sheets, by month. Not available to the admin. |
+| Admin | Admin only | Invite emails, see members and their years, remove a wrong upload. The admin's Today and Insights show **completion only** across everyone. |
 | Settings | Person | Change password, sign out, Daily Dos groups, demo data. |
 
 ## Rules of the system
@@ -20,7 +20,7 @@
 - **Username** is chosen at registration, unique (case-insensitive), 3-30 letters, numbers, `_` or `-`, and cannot be changed. It is also the person's Drive folder name.
 - **Gender** is chosen at registration (female / male / other) and cannot be changed. For **male** accounts all period features are removed: the Today tile and cycle pills, the Week-view row, the Insights "Period cycle" tab and the period lines in the Overview. For everyone else they are shown.
 - **One upload per year.** If 2026 exists for a person it cannot be uploaded again; another year is accepted. The year chosen must match the dates inside the file. The admin can remove a wrong row so the year can be uploaded again (the old Sheet stays in Drive).
-- **Privacy.** Nobody can see another person's files. The admin can view anyone's data but not change it.
+- **Privacy.** Nobody can see another person's files. The admin sees only Daily Do and Habit completion (percentages, streaks, logging days). Task names, weight, sleep, water, work location, period, spending and files are never sent to the admin; the script strips them on the server.
 - **Files** are converted to Google Sheets and stored at `MasterFolder/<UserName>/<Year>` in the owner's Drive.
 
 ## Apps Script API
@@ -31,7 +31,7 @@ One web-app URL, `POST`, body is JSON sent as `text/plain` (avoids a CORS prefli
 |---|---|---|
 | `ping` | - | `{ uid }` - confirms the token is valid |
 | `upload` | `year`, `data` (base64 .xlsx) | Creates the folder and Sheet, writes `document_link`; returns `{ year, link }` |
-| `read` | `asUid` (admin only) | The whole tracker as JSON |
+| `read` | `asUid` (admin only) | The whole tracker as JSON. With `asUid` it returns completion only: anonymised Daily Do / Habit ticks, nothing else |
 | `saveDay` / `saveDays` | `date` / `days[]` with grid, period, weight changes | `{ changed }` |
 | `saveBuyList` | `month`, `items`, `budget` | `{ saved }` |
 | `markBought` | `product`, `date`, `bought` | `{ ok }` |

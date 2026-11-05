@@ -59,7 +59,7 @@ function doPost(e) {
         if (target.readOnly && req.action !== 'read') throw new Error('This is a read-only view.');
         var ss = SpreadsheetApp.openById(target.fileId);
         switch (req.action) {
-          case 'read':         result = readAll_(ss); break;
+          case 'read':         result = target.readOnly ? readCompletion_(ss) : readAll_(ss); break;
           case 'saveDay':      result = saveDay_(ss, req); break;
           case 'saveDays':     result = saveDays_(ss, req); break;
           case 'saveBuyList':  result = saveBuyList_(ss, req); break;
@@ -1030,6 +1030,26 @@ function readBudgets_(ss) {
 }
 
 // ---------- actions ----------
+
+/**
+ * What an admin may see of someone else's file: Daily Do and Habit completion only.
+ * Task names are replaced with "Daily Do 1", "Habit 2" ... so nothing personal leaves the file;
+ * products, period, weight, sleep, water, work, tasks, spending and settings are never sent.
+ */
+function readCompletion_(ss) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var out = { title: '', timezone: tz, sheets: { products: null, period: null, weight: null, buy: null }, budgets: {},
+    profile: { height: null, waterGoal: null, tumbler: null }, water: { days: {} }, sleep: { days: {} }, tasks: {}, work: { days: {} }, oneTime: [] };
+  [['dos', 'Daily Do '], ['habits', 'Habit ']].forEach(function (p) {
+    var sh = findSheet_(ss, SHEETS[p[0]]);
+    if (!sh) { out.sheets[p[0]] = null; return; }
+    var g = gridToJson_(parseGrid_(sh, tz));
+    g.sheetName = '';
+    g.items = g.items.map(function (it, i) { return { name: p[1] + (i + 1), marked: it.marked }; });
+    out.sheets[p[0]] = g;
+  });
+  return out;
+}
 
 function readAll_(ss) {
   var tz = ss.getSpreadsheetTimeZone();

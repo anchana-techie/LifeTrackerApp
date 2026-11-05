@@ -141,7 +141,8 @@ async function api(action, payload = {}) {
   const scriptUrl = window.APP_CONFIG?.scriptUrl;
   if (!scriptUrl) throw new Error('scriptUrl is missing in config.js.');
   const idToken = await Account.token();
-  const asUid = S.viewUid && S.viewUid !== S.user.uid ? S.viewUid : undefined;
+  // chat never targets another person's file (the admin's 'Everyone' view is not one)
+  const asUid = action !== 'chat' && S.viewUid && S.viewUid !== S.user.uid ? S.viewUid : undefined;
   const res = await fetch(scriptUrl, {
     method: 'POST',
     // no content-type header => text/plain, so the browser skips the CORS preflight Apps Script can't answer

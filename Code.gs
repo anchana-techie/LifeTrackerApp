@@ -330,7 +330,11 @@ function chat_(auth, req) {
   var code = res.getResponseCode();
   if (code === 401 || code === 403) throw new Error('The assistant is not set up correctly (check the API key).');
   if (code === 429) throw new Error('The assistant is busy. Please try again in a moment.');
-  if (code !== 200) throw new Error('The assistant could not answer (' + code + ').');
+  if (code !== 200) {
+    var detail = '';
+    try { detail = JSON.parse(res.getContentText()).error.message || ''; } catch (e) { /* no JSON body */ }
+    throw new Error('The assistant could not answer (' + code + ')' + (detail ? ': ' + String(detail).slice(0, 200) : '.') + (code === 404 ? ' Check the GROQ_MODEL script property (model: ' + model + ').' : ''));
+  }
   var j = JSON.parse(res.getContentText() || '{}');
   var m = j.choices && j.choices[0] && j.choices[0].message;
   if (!m) throw new Error('The assistant returned nothing. Please try again.');

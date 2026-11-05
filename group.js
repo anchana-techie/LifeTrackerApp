@@ -95,7 +95,12 @@ async function loadGroup() {
         rows.push({ uid: m.uid, name: m.userName, gender: m.gender, color: PALETTE[rows.length % PALETTE.length], st: memberStats(data) });
       } catch (err) { failed.push(`${m.userName}: ${err.message}`); }
     }
-    S.group = { year, rows, failed, loadedAt: new Date() };
+    // people who are not in the rows above: invited but never registered, or registered with no file for this year
+    let invites = [];
+    try { invites = await Account.listInvites(); } catch { /* the rest of the view still works */ }
+    const pending = invites.map(i => i.email).filter(e => !S.members.some(m => m.email === e)).sort();
+    const noFile = S.members.filter(m => m.role !== 'admin' && !(S.memberYears[m.uid] || []).some(r => r.year === year)).map(m => m.userName).sort();
+    S.group = { year, rows, failed, pending, noFile, loadedAt: new Date() };
     S.gMonths = null;
     renderTab();
     if (failed.length) toast(`Could not load ${failed.length} ${failed.length === 1 ? 'person' : 'people'}: ${failed[0]}`, true);
@@ -120,7 +125,7 @@ function renderGroupTab(tab) {
   const box = groupHost(tab);
   const G = S.group;
   if (!S.year || !G) { fill(box, h('div', { class: 'empty' }, icon('users'), h('p', null, S.year ? 'Loading everyone…' : 'Nobody has uploaded a file yet. Members upload their own years from the Upload tab.'))); return; }
-  if (!G.rows.length) { fill(box, h('div', { class: 'empty' }, icon('users'), h('p', null, `Nobody has a file for ${G.year}. Pick another year above.`))); return; }
+  if (!G.rows.length) { fill(box, h('div', { class: 'empty' }, icon('users'), h('p', null, `Nobody has a file for ${G.year}. Pick another year above.`)), missingCard(G)); return; }
   const view = ({ log: groupToday, analysis: groupInsights })[tab];
   if (view) view(box, G);
 }
@@ -152,6 +157,17 @@ const pctAxis = { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }, x:
 /* =========================================================
  * TODAY — everyone side by side
  * ======================================================= */
+/** invited-but-not-registered and registered-without-a-file people, so nobody is silently missing */
+function missingCard(G) {
+  const pending = G.pending || [], noFile = G.noFile || [];
+  if (!pending.length && !noFile.length) return null;
+  const list = (title, items, note) => h('div', { style: 'margin-top:10px' }, h('b', null, `${title} (${items.length})`), h('p', { class: 'sub', style: 'margin:2px 0 6px' }, note),
+    h('div', { class: 'pillset' }, items.map(x => h('span', { class: 'pill' }, x))));
+  return gcard('Not started yet', 'These people are not in the comparisons above.',
+    pending.length ? list('Invited, not registered', pending, 'They have an invite but have not created their account.') : null,
+    noFile.length ? list(`Registered, no ${G.year} file`, noFile, `They have an account but nothing uploaded for ${G.year}.`) : null);
+}
+
 const kindText = k => !k ? '—' : k.today !== null ? `${pc(k.today)} · ${k.doneToday}/${k.total}` : `${pc(k.d30)} (30d)`;
 
 function groupToday(box, G) {
@@ -208,6 +224,7 @@ function groupToday(box, G) {
     tile('Fully done today', loggedToday.filter(r => r.st.todayPct === 1).length, 'everything ticked'));
   fill(box, groupHead('Everyone', `${G.year} · ${people(G.rows.length)}${G.failed.length ? ` · ${G.failed.length} failed to load` : ''}`, seg), sumTiles, cards);
 
+  box.append(missingCard(G) ?? '');
   const g = h('div', { class: 'grid-2' });
   const c1 = gcard('Daily completion, last 30 days', 'Share of Daily Dos and Habits ticked each day. Gaps are unlogged days.');
   groupChart(c1, 'line', last30Labels(), G.rows.map(r => ({ label: r.name, data: pctSeries(r.st.series), borderColor: r.color, backgroundColor: r.color, borderWidth: 2, pointRadius: 1.5, tension: .3, spanGaps: true })), { options: { scales: pctAxis } });
@@ -239,6 +256,7 @@ function groupInsights(box, G) {
   const groupDow = DOW.map((_, w) => { const v = rows.map(r => r.st.dowAvg[w]).filter(x => x !== null); return v.length ? mean(v) : null; });
 
   fill(box, groupHead('Combined insights', `${G.year} · ${people(rows.length)} together · completion only`));
+  box.append(missingCard(G) ?? '');
   box.append(h('div', { class: 'tiles' },
     tile('People tracked', rows.length, `${active} logged today`),
     tile('Group completion (30d)', pc(g30.length ? mean(g30) : null), g7.length && p7.length ? `${trendMark(mean(g7), mean(p7))} ${pc(mean(g7))} this week vs ${pc(mean(p7))} before` : null),

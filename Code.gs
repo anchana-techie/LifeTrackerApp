@@ -312,6 +312,7 @@ function chatSystem_(ctx, isAdmin) {
       '- Questions such as "who is doing best", "how is Anu doing", "who has not logged lately" get a SHORT answer in the chat (3 to 6 plain lines). Never call publish_report for these.',
       '- Only call publish_report when the user explicitly asks for a report, a document, a PDF, a download or an export.',
       '- A report covers the last 30 days of completion. If the user has not said which focus they want (overall, ranking, who needs a nudge) or which participants, ask one short question first; default is everyone and overall.',
+      '- get_group_summary and list_participants also list people who were invited but have not registered yet, and members with no file for the year. Mention them when asked who is missing; a "Not started yet" section listing them is added to every report automatically, so do not repeat it.',
       '- Then call get_group_summary and list_participants, write 2 to 5 short sentences or bullets per section using only those numbers, and call publish_report once with sections of {heading, markdown}. A completion overview chart is added automatically.',
       '- After publish_report succeeds, reply with one or two sentences and do not repeat the report.'
     ].join('\n');

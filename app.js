@@ -3140,7 +3140,9 @@ function groupFacts() {
   const t = todayKey(), by = [...rows].filter(r => r.st.d30 !== null).sort((a, b) => b.st.d30 - a.st.d30);
   const sum = k => rows.reduce((s, r) => s + (r.st[k] || 0), 0);
   return {
-    year: S.group.year, people: rows.length, logged_today: rows.filter(r => r.st.todayPct !== null).length,
+    year: S.group.year, people: rows.length,
+    invited_not_registered: S.group.pending || [], registered_without_file_for_year: S.group.noFile || [],
+    logged_today: rows.filter(r => r.st.todayPct !== null).length,
     avg_today_pct: pci(avg(r => r.st.todayPct)), avg_7d_pct: pci(avg(r => r.st.d7)), avg_30d_pct: pci(avg(r => r.st.d30)),
     daily_dos_30d_pct: pci(avg(r => r.st.dos?.d30)), habits_30d_pct: pci(avg(r => r.st.habits?.d30)),
     items_ticked_30d: sum('ticks30'), items_possible_30d: sum('possible30'), perfect_days_30d: sum('perfect30'),
@@ -3154,7 +3156,7 @@ function runAdminTool(name, a) {
   a = a || {};
   const G = S.group;
   if (!G || !G.rows.length) throw new Error('No participant data is loaded for this year.');
-  if (name === 'list_participants') return { year: G.year, participants: G.rows.map(personFacts) };
+  if (name === 'list_participants') return { year: G.year, participants: G.rows.map(personFacts), invited_not_registered: G.pending || [], registered_without_file_for_year: G.noFile || [] };
   if (name === 'get_group_summary') return groupFacts();
   if (name === 'get_participant' || name === 'get_series') {
     const r = adminPerson(a.name);
@@ -3200,9 +3202,14 @@ function buildAdminReport(a) {
     { label: 'Habits (%)', data: ord.map(r => r.st.habits?.d30 == null ? null : pci(r.st.habits.d30)), color: CH.blue }] };
   const overview = { id: 'group', heading: 'Completion overview (last 30 days)', spec, img: chartImage(spec), md: '',
     tiles: [['People', f.people], ['Logged today', f.logged_today], ['Average (30 days)', show(f.avg_30d_pct)], ['Daily Dos', show(f.daily_dos_30d_pct)], ['Habits', show(f.habits_30d_pct)],
-      ['Items ticked', f.items_possible_30d ? `${f.items_ticked_30d}/${f.items_possible_30d}` : '—'], ['Perfect days', f.perfect_days_30d]] };
+      ['Items ticked', f.items_possible_30d ? `${f.items_ticked_30d}/${f.items_possible_30d}` : '—'], ['Perfect days', f.perfect_days_30d],
+      ['Not registered yet', f.invited_not_registered.length], [`No ${G.year} file`, f.registered_without_file_for_year.length]] };
+  const missing = [];
+  if (f.invited_not_registered.length) missing.push(`**Invited, not registered (${f.invited_not_registered.length}):**`, ...f.invited_not_registered.map(e => '- ' + e));
+  if (f.registered_without_file_for_year.length) missing.push(`**Registered, no ${G.year} file (${f.registered_without_file_for_year.length}):**`, ...f.registered_without_file_for_year.map(n => '- ' + n));
+  const missingSection = missing.length ? [{ id: 'note', heading: 'Not started yet', tiles: [], spec: null, img: '', md: missing.join('\n') }] : [];
   return { title: String(a.title || 'Participant completion report').slice(0, 100), subtitle: String(a.subtitle || '').slice(0, 160), from: addDays(t, -29), to: t, created: t,
-    sections: [overview, ...secs.map(x => ({ id: 'note', heading: String(x.heading).slice(0, 80), tiles: [], spec: null, img: '', md: String(x.markdown).slice(0, 3000) }))] };
+    sections: [overview, ...secs.map(x => ({ id: 'note', heading: String(x.heading).slice(0, 80), tiles: [], spec: null, img: '', md: String(x.markdown).slice(0, 3000) })), ...missingSection] };
 }
 
 /* ---------- agent loop ---------- */
@@ -3282,7 +3289,7 @@ function renderAssistant() {
   const form = h('form', { class: 'chat-form', onsubmit: e => { e.preventDefault(); const t = input.value; input.value = ''; sendChat(t); } }, input, sendBtn);
   const newBtn = h('button', { class: 'btn small ghost', onclick: () => { if (S.chat.busy) return; S.chat.msgs = []; S.chat.ui = []; paint(); } }, icon('refresh'), 'New chat');
   fill(body, h('div', { class: 'card chat-card' },
-    h('div', { class: 'chat-head' }, h('p', { class: 'sub' }, admin ? 'Participant names and completion statistics (no task names or personal data) are sent to Groq to write answers.' : 'Your questions and summary statistics (no notes) are sent to Groq to write answers. Not medical advice.'), newBtn),
+    h('div', { class: 'chat-head' }, h('p', { class: 'sub' }, admin ? 'Participant names, invited email addresses and completion statistics (no task names or personal data) are sent to Groq to write answers.' : 'Your questions and summary statistics (no notes) are sent to Groq to write answers. Not medical advice.'), newBtn),
     log, form));
   S.chat.paint = paint;
   paint();

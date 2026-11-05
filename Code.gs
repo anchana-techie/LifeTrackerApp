@@ -241,7 +241,7 @@ function resolveFile_(auth, req) {
 // checks who is asking, enforces a daily limit and fixes the system prompt.
 
 var GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-var GROQ_DEFAULT_MODEL = 'llama-3.3-70b-versatile';   // override with the GROQ_MODEL script property
+var GROQ_DEFAULT_MODEL = 'llama-3.3-70b-versatile';   // first guess; if Groq rejects it the script picks one from /models. Set GROQ_MODEL to force a choice.
 var CHAT_DAILY_CAP = 80;             // Groq calls per person per day (one chat turn can use several)
 var CHAT_MAX_MESSAGES = 40;
 var CHAT_MAX_CONTENT = 20000;
@@ -314,26 +314,62 @@ function chatSystem_(ctx) {
   ].join('\n');
 }
 
+var GROQ_BASE = 'https://api.groq.com/openai/v1/';
+
+/** Asks Groq which chat models this key can use and picks one that handles tool calls, best first. */
+function groqPickModel_(key, skip) {
+  var res = UrlFetchApp.fetch(GROQ_BASE + 'models', { headers: { Authorization: 'Bearer ' + key }, muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) throw new Error('Could not list the available models (' + res.getResponseCode() + ').');
+  var ids = (JSON.parse(res.getContentText()).data || [])
+    .filter(function (m) { return m.active !== false; })
+    .map(function (m) { return String(m.id); })
+    .filter(function (id) { return id !== skip && !/whisper|guard|tts|playai|orpheus|embed|prompt|safeguard|distil/i.test(id); });
+  var prefer = [/gpt-oss-120b/, /llama-3\.3-70b/, /llama-4/, /gpt-oss/, /qwen/, /llama.*(70|90)b/, /kimi/, /llama/];
+  for (var i = 0; i < prefer.length; i++) {
+    for (var j = 0; j < ids.length; j++) if (prefer[i].test(ids[j])) return ids[j];
+  }
+  if (ids.length) return ids[0];
+  throw new Error('This Groq key has no chat models available.');
+}
+
+function groqCall_(key, model, messages, tools, ctx) {
+  var body = { model: model, messages: [{ role: 'system', content: chatSystem_(ctx) }].concat(messages), temperature: 0.3, max_tokens: 2500 };
+  if (tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
+  var res = UrlFetchApp.fetch(GROQ_URL, {
+    method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + key },
+    payload: JSON.stringify(body), muteHttpExceptions: true
+  });
+  return res;
+}
+
+function groqError_(res) {
+  try { return String(JSON.parse(res.getContentText()).error.message || '').slice(0, 220); } catch (e) { return ''; }
+}
+
 /** req: { messages, tools, context:{today,first,last} } -> { message } */
 function chat_(auth, req) {
   if (req.asUid && String(req.asUid) !== auth.uid) throw new Error('The assistant is only available on your own tracker.');
   var key = prop_('GROQ_API_KEY');
   var messages = chatClean_(req.messages), tools = chatTools_(req.tools);
   chatUsageBump_(auth.uid);
-  var model = PropertiesService.getScriptProperties().getProperty('GROQ_MODEL') || GROQ_DEFAULT_MODEL;
-  var body = { model: model, messages: [{ role: 'system', content: chatSystem_(req.context) }].concat(messages), temperature: 0.3, max_tokens: 2500 };
-  if (tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
-  var res = UrlFetchApp.fetch(GROQ_URL, {
-    method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + key },
-    payload: JSON.stringify(body), muteHttpExceptions: true
-  });
+  var props = PropertiesService.getScriptProperties(), cache = CacheService.getScriptCache();
+  var fixed = props.getProperty('GROQ_MODEL');                       // explicit choice always wins
+  var model = fixed || cache.get('groq_model') || GROQ_DEFAULT_MODEL;
+  var res = groqCall_(key, model, messages, tools, req.context);
   var code = res.getResponseCode();
+
+  // unknown model or no access: find one this key can use, remember it for six hours, and retry once
+  if ((code === 404 || (code === 400 && /model/i.test(groqError_(res)))) && !fixed) {
+    model = groqPickModel_(key, model);
+    cache.put('groq_model', model, 21600);
+    res = groqCall_(key, model, messages, tools, req.context);
+    code = res.getResponseCode();
+  }
   if (code === 401 || code === 403) throw new Error('The assistant is not set up correctly (check the API key).');
   if (code === 429) throw new Error('The assistant is busy. Please try again in a moment.');
   if (code !== 200) {
-    var detail = '';
-    try { detail = JSON.parse(res.getContentText()).error.message || ''; } catch (e) { /* no JSON body */ }
-    throw new Error('The assistant could not answer (' + code + ')' + (detail ? ': ' + String(detail).slice(0, 200) : '.') + (code === 404 ? ' Check the GROQ_MODEL script property (model: ' + model + ').' : ''));
+    var detail = groqError_(res);
+    throw new Error('The assistant could not answer (' + code + ')' + (detail ? ': ' + detail : '.') + (code === 404 && fixed ? ' Check the GROQ_MODEL script property (model: ' + model + ').' : ''));
   }
   var j = JSON.parse(res.getContentText() || '{}');
   var m = j.choices && j.choices[0] && j.choices[0].message;

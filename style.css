@@ -639,3 +639,6 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
 .chat-msg.md ul { margin: 4px 0; padding-left: 18px; }
 .chat-msg.md h4 { margin: 6px 0 2px; font-size: .95rem; }
 .rep h1, .rep h2, .rep h4, .rep b { color: #1d2b26; }
+
+.rep, .rep p, .rep li, .rep ul, .rep section, .rep header, .rep h1, .rep h2, .rep h4 { color: #1d2b26; }
+.rep .rep-sub, .rep .rep-foot, .rep-tiles span { color: #5b6b65; }

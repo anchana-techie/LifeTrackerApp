@@ -2955,6 +2955,9 @@ function runTool(name, a) {
     return { from: win[0], to: win[1], sections: Object.fromEntries(ids.map(id => [id, summaryOf(id, win)])) };
   }
   if (name === 'publish_report') {
+    // a report is only built on request; otherwise the model must answer in the chat
+    const asked = S.chat.msgs.some(m => m.role === 'user' && /report|document|docs?|pdf|download|export/i.test(m.content));
+    if (!asked) throw new Error('The user did not ask for a report or document. Answer in the chat with a short summary instead.');
     const rep = buildReport(a);
     S.chat.reports.push(rep);
     S.chat.ui.push({ role: 'report', report: rep });

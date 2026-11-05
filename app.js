@@ -1987,7 +1987,7 @@ function viewWork(win, body) {
     data: { labels: A.perDow.map(x => DOW[x.dow]), datasets: [
       { label: 'Office', data: A.perDow.map(x => x.WFO), backgroundColor: colors.WFO, borderRadius: 4 },
       { label: 'Home', data: A.perDow.map(x => x.WFH), backgroundColor: colors.WFH, borderRadius: 4 }] },
-    options: { scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 } } } }
+    options: { scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } }
   });
 
   const O = A.cmpO, Hm = A.cmpH;

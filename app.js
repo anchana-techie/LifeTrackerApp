@@ -3132,7 +3132,10 @@ function personFacts(r) {
     avg_7d_pct: pci(s.d7), avg_previous_7d_pct: pci(s.p7), avg_30d_pct: pci(s.d30),
     daily_dos_30d_pct: pci(s.dos?.d30), habits_30d_pct: pci(s.habits?.d30),
     days_logged_last_30: s.logged30, streak_days: s.streak, last_logged: s.lastLogged,
-    perfect_days_30d: s.perfect30, items_ticked_30d: s.ticks30, items_possible_30d: s.possible30
+    perfect_days_30d: s.perfect30, items_ticked_30d: s.ticks30, items_possible_30d: s.possible30,
+    water_goal_ml: s.water.goal, water_days_logged: s.water.daysLogged, water_avg_ml_7d: s.water.avg7 === null ? null : Math.round(s.water.avg7),
+    water_avg_ml_30d: s.water.avg30 === null ? null : Math.round(s.water.avg30), water_goal_met_days_30d: s.water.met30,
+    water_goal_met_days_all_year: s.water.metTotal, water_goal_ever_met: s.water.metTotal > 0, water_goal_last_met: s.water.lastMet
   };
 }
 function groupFacts() {
@@ -3146,6 +3149,8 @@ function groupFacts() {
     avg_today_pct: pci(avg(r => r.st.todayPct)), avg_7d_pct: pci(avg(r => r.st.d7)), avg_30d_pct: pci(avg(r => r.st.d30)),
     daily_dos_30d_pct: pci(avg(r => r.st.dos?.d30)), habits_30d_pct: pci(avg(r => r.st.habits?.d30)),
     items_ticked_30d: sum('ticks30'), items_possible_30d: sum('possible30'), perfect_days_30d: sum('perfect30'),
+    water_goal_met_person_days_30d: rows.reduce((s, r) => s + r.st.water.met30, 0), people_who_ever_met_water_goal: rows.filter(r => r.st.water.metTotal > 0).map(r => r.name),
+    people_who_never_met_water_goal: rows.filter(r => r.st.water.goal && r.st.water.metTotal === 0).map(r => r.name),
     top_30d: by.slice(0, 3).map(r => ({ name: r.name, pct: pci(r.st.d30) })), lowest_30d: by.slice(-3).reverse().map(r => ({ name: r.name, pct: pci(r.st.d30) })),
     not_logged_for_3_days_or_more: rows.filter(r => !r.st.lastLogged || diffDays(r.st.lastLogged, t) >= 3).map(r => r.name),
     bands_30d: { at_least_80: rows.filter(r => r.st.d30 !== null && r.st.d30 >= .8).length, from_50_to_79: rows.filter(r => r.st.d30 !== null && r.st.d30 >= .5 && r.st.d30 < .8).length, under_50: rows.filter(r => r.st.d30 !== null && r.st.d30 < .5).length }
@@ -3181,8 +3186,8 @@ const ADMIN_TOOLS = (() => {
   const who = { name: { type: 'string', description: 'Participant name as shown in the app' } };
   return [
     fn('get_group_summary', 'Completion totals for everyone: averages, ticks, perfect days, top and lowest people, who has not logged lately.'),
-    fn('list_participants', 'Completion statistics for every participant.'),
-    fn('get_participant', 'Completion statistics for one participant, including weekday averages.', who, ['name']),
+    fn('list_participants', 'Completion and water-goal statistics for every participant.'),
+    fn('get_participant', 'Completion and water-goal statistics for one participant, including weekday averages.', who, ['name']),
     fn('get_series', 'Daily completion percentage for one participant over the last 30 days.', who, ['name']),
     fn('publish_report', 'Show the finished completion report to the user. Call once, after get_group_summary and list_participants. An overview chart is added automatically; supply only the headings and narrative.',
       { title: { type: 'string' }, subtitle: { type: 'string' },
@@ -3203,7 +3208,7 @@ function buildAdminReport(a) {
   const overview = { id: 'group', heading: 'Completion overview (last 30 days)', spec, img: chartImage(spec), md: '',
     tiles: [['People', f.people], ['Logged today', f.logged_today], ['Average (30 days)', show(f.avg_30d_pct)], ['Daily Dos', show(f.daily_dos_30d_pct)], ['Habits', show(f.habits_30d_pct)],
       ['Items ticked', f.items_possible_30d ? `${f.items_ticked_30d}/${f.items_possible_30d}` : '—'], ['Perfect days', f.perfect_days_30d],
-      ['Not registered yet', f.invited_not_registered.length], [`No ${G.year} file`, f.registered_without_file_for_year.length]] };
+      ['Water goal met (30d)', f.water_goal_met_person_days_30d], ['Not registered yet', f.invited_not_registered.length], [`No ${G.year} file`, f.registered_without_file_for_year.length]] };
   const missing = [];
   if (f.invited_not_registered.length) missing.push(`**Invited, not registered (${f.invited_not_registered.length}):**`, ...f.invited_not_registered.map(e => '- ' + e));
   if (f.registered_without_file_for_year.length) missing.push(`**Registered, no ${G.year} file (${f.registered_without_file_for_year.length}):**`, ...f.registered_without_file_for_year.map(n => '- ' + n));
@@ -3289,7 +3294,7 @@ function renderAssistant() {
   const form = h('form', { class: 'chat-form', onsubmit: e => { e.preventDefault(); const t = input.value; input.value = ''; sendChat(t); } }, input, sendBtn);
   const newBtn = h('button', { class: 'btn small ghost', onclick: () => { if (S.chat.busy) return; S.chat.msgs = []; S.chat.ui = []; paint(); } }, icon('refresh'), 'New chat');
   fill(body, h('div', { class: 'card chat-card' },
-    h('div', { class: 'chat-head' }, h('p', { class: 'sub' }, admin ? 'Participant names, invited email addresses and completion statistics (no task names or personal data) are sent to Groq to write answers.' : 'Your questions and summary statistics (no notes) are sent to Groq to write answers. Not medical advice.'), newBtn),
+    h('div', { class: 'chat-head' }, h('p', { class: 'sub' }, admin ? 'Participant names, invited email addresses, completion and water statistics (no task names or other personal data) are sent to Groq to write answers.' : 'Your questions and summary statistics (no notes) are sent to Groq to write answers. Not medical advice.'), newBtn),
     log, form));
   S.chat.paint = paint;
   paint();

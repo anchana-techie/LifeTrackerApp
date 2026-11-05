@@ -20,7 +20,7 @@
 - **Username** is chosen at registration, unique (case-insensitive), 3-30 letters, numbers, `_` or `-`, and cannot be changed. It is also the person's Drive folder name.
 - **Gender** is chosen at registration (female / male / other) and cannot be changed. For **male** accounts all period features are removed: the Today tile and cycle pills, the Week-view row, the Insights "Period cycle" tab and the period lines in the Overview. For everyone else they are shown.
 - **One upload per year.** If 2026 exists for a person it cannot be uploaded again; another year is accepted. The year chosen must match the dates inside the file. The admin can remove a wrong row so the year can be uploaded again (the old Sheet stays in Drive).
-- **Privacy.** Nobody can see another person's files. The admin sees only Daily Do and Habit completion (percentages, streaks, logging days). Task names, weight, sleep, water, work location, period, spending and files are never sent to the admin; the script strips them on the server.
+- **Privacy.** Nobody can see another person's files. The admin sees only Daily Do and Habit completion (percentages, streaks, logging days) and water totals against the goal (no drink times). Task names, weight, sleep, work location, period, spending and files are never sent to the admin; the script strips them on the server.
 - **Files** are converted to Google Sheets and stored at `MasterFolder/<UserName>/<Year>` in the owner's Drive.
 
 ## Apps Script API
@@ -31,7 +31,7 @@ One web-app URL, `POST`, body is JSON sent as `text/plain` (avoids a CORS prefli
 |---|---|---|
 | `ping` | - | `{ uid }` - confirms the token is valid |
 | `upload` | `year`, `data` (base64 .xlsx) | Creates the folder and Sheet, writes `document_link`; returns `{ year, link }` |
-| `read` | `asUid` (admin only) | The whole tracker as JSON. With `asUid` it returns completion only: anonymised Daily Do / Habit ticks, nothing else |
+| `read` | `asUid` (admin only) | The whole tracker as JSON. With `asUid` it returns completion and water totals only: anonymised Daily Do / Habit ticks and daily water totals, nothing else |
 | `saveDay` / `saveDays` | `date` / `days[]` with grid, period, weight changes | `{ changed }` |
 | `saveBuyList` | `month`, `items`, `budget` | `{ saved }` |
 | `markBought` | `product`, `date`, `bought` | `{ ok }` |

@@ -42,6 +42,19 @@ function memberStats(data) {
       const on = x.loggedDays.has(t);
       return { total: n, today: on ? pctK(t) : null, doneToday: on ? x.items.filter(i => x.sets[i].has(t)).length : null, d7: avg(addDays(t, -6), t), d30: avg(addDays(t, -29), t) };
     };
+    // water: totals against the goal only (the admin never gets drink times)
+    const prof = S.data.profile, goal = prof.waterGoal || null, wdays = S.data.water.days;
+    const goalOf = x => x.goal || goal;
+    const wAll = Object.entries(wdays).filter(([d]) => d <= t && x0(wdays[d]));
+    function x0(x) { return x && x.total > 0; }
+    const metAll = wAll.filter(([, x]) => goalOf(x) && x.total >= goalOf(x)).map(([d]) => d).sort();
+    const wIn = (a, b) => wAll.filter(([d]) => d >= a && d <= b).map(([, x]) => x.total);
+    const w7 = wIn(addDays(t, -6), t), w30v = wIn(addDays(t, -29), t);
+    const water = {
+      goal, daysLogged: wAll.length, metTotal: metAll.length, lastMet: metAll[metAll.length - 1] || null,
+      avg7: w7.length ? mean(w7) : null, avg30: w30v.length ? mean(w30v) : null,
+      logged30: w30v.length, met30: metAll.filter(d => d >= addDays(t, -29)).length
+    };
     const days30 = w30.filter(d => logged.has(d));
     const ticks30 = days30.reduce((s, d) => s + doneOn(d), 0);
 
@@ -60,7 +73,7 @@ function memberStats(data) {
       streak: streakEnding(logged, logged.has(t) ? t : addDays(t, -1)),
       series: w30.map(d => logged.has(d) ? pctOn(d) : null),
       dowAvg, dos: kindOf('dos'), habits: kindOf('habits'),
-      ticks30, possible30: days30.length * total, perfect30: total ? days30.filter(d => pctOn(d) === 1).length : 0
+      water, ticks30, possible30: days30.length * total, perfect30: total ? days30.filter(d => pctOn(d) === 1).length : 0
     };
   });
 }
@@ -194,7 +207,9 @@ function groupToday(box, G) {
           kv('Daily Dos', kindText(s.dos)),
           kv('Habits', kindText(s.habits)),
           kv('Ticked (30d)', s.possible30 ? `${s.ticks30}/${s.possible30} · ${pc(s.ticks30 / s.possible30)}` : '—'),
-          kv('Perfect days', plural(s.perfect30, 'day')))));
+          kv('Perfect days', plural(s.perfect30, 'day')),
+          kv('Water (avg)', s.water.avg7 === null ? '—' : `${Math.round(s.water.avg7)} ml/day (7d)${s.water.goal ? ` · goal ${s.water.goal}` : ''}`),
+          kv('Water goal met', !s.water.goal ? 'no goal set' : `${s.water.met30} of 30 days · ${s.water.metTotal} all year`))));
   }));
 
   const ins = [];
@@ -234,10 +249,11 @@ function groupToday(box, G) {
   box.append(g);
 
   box.append(gcard('Side by side', 'Completion only. ▲ ▼ compare with the previous period.', table(
-    ['Person', 'Today', '7 days', '30 days', 'Daily Dos (30d)', 'Habits (30d)', 'Ticked (30d)', 'Logged (30d)', 'Streak'],
+    ['Person', 'Today', '7 days', '30 days', 'Daily Dos (30d)', 'Habits (30d)', 'Ticked (30d)', 'Logged (30d)', 'Streak', 'Water goal met (30d)'],
     ranked.map(r => { const s = r.st; return [
       h('span', null, dot(r.color), r.name), s.todayPct === null ? '—' : pc(s.todayPct), `${pc(s.d7)} ${trendMark(s.d7, s.p7)}`, `${pc(s.d30)} ${trendMark(s.d30, s.p30)}`,
-      pc(s.dos?.d30), pc(s.habits?.d30), s.possible30 ? `${s.ticks30}/${s.possible30}` : '—', `${s.logged30}/30`, plural(s.streak, 'day')
+      pc(s.dos?.d30), pc(s.habits?.d30), s.possible30 ? `${s.ticks30}/${s.possible30}` : '—', `${s.logged30}/30`, plural(s.streak, 'day'),
+      s.water.goal ? `${s.water.met30}/30` : '—'
     ]; }))));
   box.append(gcard('What stands out', rangeName, ins.length ? insightList(ins) : h('p', { class: 'muted' }, 'Not enough logged days yet.')));
 }
@@ -263,6 +279,7 @@ function groupInsights(box, G) {
     tile('Longest streak', plural(Math.max(0, ...rows.map(r => r.st.streak)), 'day'), rows.slice().sort((a, b) => b.st.streak - a.st.streak)[0]?.name),
     tile('Items ticked (30d)', `${sumOf('ticks30')}/${sumOf('possible30')}`, sumOf('possible30') ? `${pc(sumOf('ticks30') / sumOf('possible30'))} of everything possible on logged days` : null),
     tile('Perfect days (30d)', sumOf('perfect30'), 'days with everything ticked'),
+    tile('Water goal met (30d)', rows.reduce((s, r) => s + r.st.water.met30, 0), `person-days at or above the goal · ${rows.filter(r => r.st.water.metTotal > 0).length} of ${rows.length} have met it at least once`),
     tile('Daily Dos vs Habits (30d)', `${pc(avgOf(r => r.st.dos?.d30))} · ${pc(avgOf(r => r.st.habits?.d30))}`, 'average completion, Dos first')));
 
   const band = (lo, hi) => rows.filter(r => r.st.d30 !== null && r.st.d30 >= lo && r.st.d30 < hi);
@@ -299,9 +316,12 @@ function groupInsights(box, G) {
   const quiet = rows.filter(r => !r.st.lastLogged || diffDays(r.st.lastLogged, t) >= 3).map(r => r.name);
   if (quiet.length) ins.push(['💤', `Not logging lately: ${quiet.join(', ')}.`]);
   box.append(gcard('Completion detail', 'Everything counts only days the person logged. Item names are hidden from admins.', table(
-    ['Person', 'Overall (30d)', 'Daily Dos', 'Habits', 'Ticked / possible', 'Perfect days', 'Days logged', 'Streak', 'Last logged'],
+    ['Person', 'Overall (30d)', 'Daily Dos', 'Habits', 'Ticked / possible', 'Perfect days', 'Days logged', 'Streak', 'Last logged', 'Water goal met (30d / all year)'],
     ord.map(r => { const s = r.st; return [h('span', null, dot(r.color), r.name), pc(s.d30), pc(s.dos?.d30), pc(s.habits?.d30),
-      s.possible30 ? `${s.ticks30}/${s.possible30}` : '—', s.perfect30, `${s.logged30}/30`, plural(s.streak, 'day'), s.lastLogged ? fmt(s.lastLogged) : 'never']; }))));
+      s.possible30 ? `${s.ticks30}/${s.possible30}` : '—', s.perfect30, `${s.logged30}/30`, plural(s.streak, 'day'), s.lastLogged ? fmt(s.lastLogged) : 'never',
+      s.water.goal ? `${s.water.met30} / ${s.water.metTotal}` : 'no goal set']; }))));
+  const neverWet = rows.filter(r => r.st.water.goal && r.st.water.metTotal === 0).map(r => r.name);
+  if (neverWet.length) ins.push(['💤', `Has not met the water goal yet: ${neverWet.join(', ')}.`]);
   if (strong.length) ins.push(['🏆', `${strong.map(r => r.name).join(', ')} ${strong.length === 1 ? 'is' : 'are'} at 80% or more over the last 30 days.`]);
   if (low.length) ins.push(['⚠️', `${low.map(r => r.name).join(', ')} ${low.length === 1 ? 'is' : 'are'} under 50% over the last 30 days.`]);
   const dosAvg = avgOf(r => r.st.dos?.d30), habAvg = avgOf(r => r.st.habits?.d30);

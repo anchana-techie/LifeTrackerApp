@@ -33,6 +33,17 @@ function memberStats(data) {
     const pctOn = d => total ? doneOn(d) / total : 0;
     const avgOver = (a, b) => { const v = rangeDays(a, b).filter(d => logged.has(d)).map(pctOn); return v.length ? mean(v) : null; };
     const w30 = rangeDays(addDays(t, -29), t);
+    // Daily Dos and Habits separately (the sheet only ever holds anonymised items for the admin)
+    const kindOf = k => {
+      const x = ix[k]; if (!x) return null;
+      const n = x.items.length;
+      const pctK = d => n ? x.items.filter(i => x.sets[i].has(d)).length / n : 0;
+      const avg = (a, b) => { const v = rangeDays(a, b).filter(d => x.loggedDays.has(d)).map(pctK); return v.length ? mean(v) : null; };
+      const on = x.loggedDays.has(t);
+      return { total: n, today: on ? pctK(t) : null, doneToday: on ? x.items.filter(i => x.sets[i].has(t)).length : null, d7: avg(addDays(t, -6), t), d30: avg(addDays(t, -29), t) };
+    };
+    const days30 = w30.filter(d => logged.has(d));
+    const ticks30 = days30.reduce((s, d) => s + doneOn(d), 0);
 
     const lastLogged = [...logged].filter(d => d <= t).sort().pop() || null;
     const dowAvg = Array.from({ length: 7 }, (_, w) => {
@@ -48,7 +59,8 @@ function memberStats(data) {
       logged30: w30.filter(d => logged.has(d)).length,
       streak: streakEnding(logged, logged.has(t) ? t : addDays(t, -1)),
       series: w30.map(d => logged.has(d) ? pctOn(d) : null),
-      dowAvg
+      dowAvg, dos: kindOf('dos'), habits: kindOf('habits'),
+      ticks30, possible30: days30.length * total, perfect30: total ? days30.filter(d => pctOn(d) === 1).length : 0
     };
   });
 }
@@ -140,6 +152,8 @@ const pctAxis = { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }, x:
 /* =========================================================
  * TODAY — everyone side by side
  * ======================================================= */
+const kindText = k => !k ? '—' : k.today !== null ? `${pc(k.today)} · ${k.doneToday}/${k.total}` : `${pc(k.d30)} (30d)`;
+
 function groupToday(box, G) {
   S.gRange ||= G.rows.some(r => r.st.todayPct !== null) ? 'today' : '7';   // nobody logged yet today -> show the week
   const val = r => S.gRange === 'today' ? r.st.todayPct : S.gRange === '7' ? r.st.d7 : r.st.d30;
@@ -160,7 +174,11 @@ function groupToday(box, G) {
           kv('7 days', `${pc(s.d7)} ${trendMark(s.d7, s.p7)}`),
           kv('30 days', `${pc(s.d30)} ${trendMark(s.d30, s.p30)}`),
           kv('Logged', `${s.logged30}/30 days`),
-          kv('Streak', plural(s.streak, 'day')))));
+          kv('Streak', plural(s.streak, 'day')),
+          kv('Daily Dos', kindText(s.dos)),
+          kv('Habits', kindText(s.habits)),
+          kv('Ticked (30d)', s.possible30 ? `${s.ticks30}/${s.possible30} · ${pc(s.ticks30 / s.possible30)}` : '—'),
+          kv('Perfect days', plural(s.perfect30, 'day')))));
   }));
 
   const ins = [];
@@ -180,7 +198,15 @@ function groupToday(box, G) {
   const loggers = [...G.rows].sort((a, b) => b.st.logged30 - a.st.logged30)[0];
   if (loggers) ins.push(['✅', `Most consistent logger (30 days): ${loggers.name}, ${loggers.st.logged30}/30 days.`]);
 
-  fill(box, groupHead('Everyone', `${G.year} · ${people(G.rows.length)}${G.failed.length ? ` · ${G.failed.length} failed to load` : ''}`, seg), cards);
+  const loggedToday = G.rows.filter(r => r.st.todayPct !== null);
+  const tTicks = loggedToday.reduce((s, r) => s + r.st.todayDone, 0), tTotal = loggedToday.reduce((s, r) => s + r.st.total, 0);
+  const avgV = G.rows.map(val).filter(v => v !== null);
+  const sumTiles = h('div', { class: 'tiles' },
+    tile('People', G.rows.length, `${loggedToday.length} logged today`),
+    tile(`Average completion (${rangeName})`, pc(avgV.length ? mean(avgV) : null), avgV.length ? `across ${people(avgV.length)}` : 'nothing logged yet'),
+    tile('Ticked today', tTotal ? `${tTicks}/${tTotal}` : '—', tTotal ? `${pc(tTicks / tTotal)} of items, for people who logged` : 'nobody has logged today'),
+    tile('Fully done today', loggedToday.filter(r => r.st.todayPct === 1).length, 'everything ticked'));
+  fill(box, groupHead('Everyone', `${G.year} · ${people(G.rows.length)}${G.failed.length ? ` · ${G.failed.length} failed to load` : ''}`, seg), sumTiles, cards);
 
   const g = h('div', { class: 'grid-2' });
   const c1 = gcard('Daily completion, last 30 days', 'Share of Daily Dos and Habits ticked each day. Gaps are unlogged days.');
@@ -191,10 +217,10 @@ function groupToday(box, G) {
   box.append(g);
 
   box.append(gcard('Side by side', 'Completion only. ▲ ▼ compare with the previous period.', table(
-    ['Person', 'Today', '7 days', '30 days', 'Logged (30d)', 'Streak'],
+    ['Person', 'Today', '7 days', '30 days', 'Daily Dos (30d)', 'Habits (30d)', 'Ticked (30d)', 'Logged (30d)', 'Streak'],
     ranked.map(r => { const s = r.st; return [
       h('span', null, dot(r.color), r.name), s.todayPct === null ? '—' : pc(s.todayPct), `${pc(s.d7)} ${trendMark(s.d7, s.p7)}`, `${pc(s.d30)} ${trendMark(s.d30, s.p30)}`,
-      `${s.logged30}/30`, plural(s.streak, 'day')
+      pc(s.dos?.d30), pc(s.habits?.d30), s.possible30 ? `${s.ticks30}/${s.possible30}` : '—', `${s.logged30}/30`, plural(s.streak, 'day')
     ]; }))));
   box.append(gcard('What stands out', rangeName, ins.length ? insightList(ins) : h('p', { class: 'muted' }, 'Not enough logged days yet.')));
 }
@@ -207,6 +233,8 @@ function groupInsights(box, G) {
   const all = (k) => rows.map(r => r.st[k]).filter(v => v !== null && v !== undefined);
   const g30 = all('d30'), g7 = all('d7'), p7 = all('p7');
   const active = rows.filter(r => r.st.todayPct !== null).length;
+  const sumOf = k => rows.reduce((s, r) => s + (r.st[k] || 0), 0);
+  const avgOf = f => { const v = rows.map(f).filter(x => x !== null && x !== undefined); return v.length ? mean(v) : null; };
   const groupSeries = last30Labels().map((_, i) => { const v = rows.map(r => r.st.series[i]).filter(x => x !== null); return v.length ? mean(v) : null; });
   const groupDow = DOW.map((_, w) => { const v = rows.map(r => r.st.dowAvg[w]).filter(x => x !== null); return v.length ? mean(v) : null; });
 
@@ -214,7 +242,27 @@ function groupInsights(box, G) {
   box.append(h('div', { class: 'tiles' },
     tile('People tracked', rows.length, `${active} logged today`),
     tile('Group completion (30d)', pc(g30.length ? mean(g30) : null), g7.length && p7.length ? `${trendMark(mean(g7), mean(p7))} ${pc(mean(g7))} this week vs ${pc(mean(p7))} before` : null),
-    tile('Longest streak', plural(Math.max(0, ...rows.map(r => r.st.streak)), 'day'), rows.slice().sort((a, b) => b.st.streak - a.st.streak)[0]?.name)));
+    tile('Longest streak', plural(Math.max(0, ...rows.map(r => r.st.streak)), 'day'), rows.slice().sort((a, b) => b.st.streak - a.st.streak)[0]?.name),
+    tile('Items ticked (30d)', `${sumOf('ticks30')}/${sumOf('possible30')}`, sumOf('possible30') ? `${pc(sumOf('ticks30') / sumOf('possible30'))} of everything possible on logged days` : null),
+    tile('Perfect days (30d)', sumOf('perfect30'), 'days with everything ticked'),
+    tile('Daily Dos vs Habits (30d)', `${pc(avgOf(r => r.st.dos?.d30))} · ${pc(avgOf(r => r.st.habits?.d30))}`, 'average completion, Dos first')));
+
+  const band = (lo, hi) => rows.filter(r => r.st.d30 !== null && r.st.d30 >= lo && r.st.d30 < hi);
+  const strong = band(0.8, 1.01), mid = band(0.5, 0.8), low = band(0, 0.5), none = rows.filter(r => r.st.d30 === null);
+  const gb = h('div', { class: 'grid-2' });
+  const c0 = gcard('Completion by person, last 30 days', 'Average share ticked on days each person logged, Daily Dos and Habits separately.');
+  const ord = [...rows].sort((a, b) => (b.st.d30 ?? -1) - (a.st.d30 ?? -1));
+  groupChart(c0, 'bar', ord.map(r => r.name), [
+    { label: 'Daily Dos', data: ord.map(r => r.st.dos?.d30 == null ? null : +(r.st.dos.d30 * 100).toFixed(0)), backgroundColor: css('--accent'), borderRadius: 5 },
+    { label: 'Habits', data: ord.map(r => r.st.habits?.d30 == null ? null : +(r.st.habits.d30 * 100).toFixed(0)), backgroundColor: css('--water'), borderRadius: 5 }],
+    { options: { scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } }, x: { grid: { display: false } } } } });
+  const c0b = gcard('How people are doing', 'Grouped by their 30-day completion.', table(['Band', 'People', 'Who'], [
+    ['80% or more', strong.length, strong.map(r => r.name).join(', ') || '—'],
+    ['50% to 79%', mid.length, mid.map(r => r.name).join(', ') || '—'],
+    ['Under 50%', low.length, low.map(r => r.name).join(', ') || '—'],
+    ['No data', none.length, none.map(r => r.name).join(', ') || '—']]));
+  gb.append(c0, c0b);
+  box.append(gb);
 
   const g = h('div', { class: 'grid-2' });
   const c1 = gcard('Group completion, last 30 days', 'Thick line is the average of everyone; thin lines are each person.');
@@ -232,5 +280,13 @@ function groupInsights(box, G) {
   if (bestDay.length > 1) ins.push(['📅', `Everyone does best on ${bestDay[0].d} (${pc(bestDay[0].v)}) and worst on ${bestDay[bestDay.length - 1].d} (${pc(bestDay[bestDay.length - 1].v)}).`]);
   const quiet = rows.filter(r => !r.st.lastLogged || diffDays(r.st.lastLogged, t) >= 3).map(r => r.name);
   if (quiet.length) ins.push(['💤', `Not logging lately: ${quiet.join(', ')}.`]);
+  box.append(gcard('Completion detail', 'Everything counts only days the person logged. Item names are hidden from admins.', table(
+    ['Person', 'Overall (30d)', 'Daily Dos', 'Habits', 'Ticked / possible', 'Perfect days', 'Days logged', 'Streak', 'Last logged'],
+    ord.map(r => { const s = r.st; return [h('span', null, dot(r.color), r.name), pc(s.d30), pc(s.dos?.d30), pc(s.habits?.d30),
+      s.possible30 ? `${s.ticks30}/${s.possible30}` : '—', s.perfect30, `${s.logged30}/30`, plural(s.streak, 'day'), s.lastLogged ? fmt(s.lastLogged) : 'never']; }))));
+  if (strong.length) ins.push(['🏆', `${strong.map(r => r.name).join(', ')} ${strong.length === 1 ? 'is' : 'are'} at 80% or more over the last 30 days.`]);
+  if (low.length) ins.push(['⚠️', `${low.map(r => r.name).join(', ')} ${low.length === 1 ? 'is' : 'are'} under 50% over the last 30 days.`]);
+  const dosAvg = avgOf(r => r.st.dos?.d30), habAvg = avgOf(r => r.st.habits?.d30);
+  if (dosAvg !== null && habAvg !== null && Math.abs(dosAvg - habAvg) >= 0.05) ins.push(['ℹ️', `The group finishes ${dosAvg > habAvg ? 'Daily Dos' : 'Habits'} more often (${pc(Math.max(dosAvg, habAvg))} vs ${pc(Math.min(dosAvg, habAvg))}).`]);
   box.append(gcard('What stands out', null, insightList(ins)));
 }

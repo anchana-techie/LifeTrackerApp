@@ -2233,8 +2233,8 @@ async function onAuthChange(profile, msg) {
   const admin = profile.role === 'admin';
   $('#navAdmin').hidden = !admin;
   $('#navUpload').hidden = admin;   // admins do not upload files for themselves
-  // an admin only sees completion across everyone: no personal pages, no files, no tasks, no assistant
-  $$('.nav-btn').forEach(b => { if (['buy', 'files', 'tasks', 'timegen', 'assistant'].includes(b.dataset.tab)) b.hidden = admin; });
+  // an admin only sees completion across everyone: no personal pages, no files, no tasks; the assistant only knows completion
+  $$('.nav-btn').forEach(b => { if (['buy', 'files', 'tasks', 'timegen'].includes(b.dataset.tab)) b.hidden = admin; });
   S.members = []; S.memberYears = {};
   if (admin) {
     try { S.members = (await Account.listMembers()).filter(m => !m.deleted); await loadMemberYears(); } catch (err) { toast(err.message, true); }
@@ -2860,7 +2860,7 @@ const AI_NAME = { dos: 'Daily Dos', habits: 'Habits', sleep: 'Sleep', weight: 'W
 S.chat = { msgs: [], ui: [], reports: [], busy: false, paint: null };
 
 const r1 = x => x === null || x === undefined || isNaN(x) ? null : Math.round(x * 10) / 10;
-const pc = x => x === null || x === undefined || isNaN(x) ? null : Math.round(x * 100);
+const pci = x => x === null || x === undefined || isNaN(x) ? null : Math.round(x * 100);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** validated [from, to] inside the tracked, already-elapsed days */
@@ -2879,13 +2879,13 @@ function summaryOf(metric, win) {
     const g = analyzeGrid(metric, win);
     if (!g) return { available: false };
     const items = g.items.filter(i => i.rate !== null).sort((x, y) => y.rate - x.rate);
-    const pick = i => ({ name: i.name, done_pct: pc(i.rate), longest_streak_days: i.longest });
-    return { days_in_range: g.days.length, days_logged: g.logged.length, avg_completion_pct: pc(g.avg), best_items: items.slice(0, 5).map(pick), weakest_items: items.slice(-5).reverse().map(pick) };
+    const pick = i => ({ name: i.name, done_pct: pci(i.rate), longest_streak_days: i.longest });
+    return { days_in_range: g.days.length, days_logged: g.logged.length, avg_completion_pct: pci(g.avg), best_items: items.slice(0, 5).map(pick), weakest_items: items.slice(-5).reverse().map(pick) };
   }
   if (metric === 'sleep') {
     const A = analyzeSleep(win);
     if (!A.n) return { nights: 0 };
-    return { nights: A.n, avg_hours: r1(A.avg / 60), shortest_hours: r1(A.shortest.dur / 60), longest_hours: r1(A.longest.dur / 60), pct_nights_7_to_9h: pc(A.inRange),
+    return { nights: A.n, avg_hours: r1(A.avg / 60), shortest_hours: r1(A.shortest.dur / 60), longest_hours: r1(A.longest.dur / 60), pct_nights_7_to_9h: pci(A.inRange),
       usual_bedtime: clockText(A.avgBed), usual_wake: clockText(A.avgWake), sleep_debt_hours_vs_8h: r1(A.debt / 60) };
   }
   if (metric === 'weight') {
@@ -2903,9 +2903,9 @@ function summaryOf(metric, win) {
   }
   if (metric === 'work') {
     const A = analyzeWork(win);
-    const side = c => ({ days: c.n, avg_list_completion_pct: pc(c.score), avg_sleep_hours: c.sleep === null ? null : r1(c.sleep / 60) });
+    const side = c => ({ days: c.n, avg_list_completion_pct: pci(c.score), avg_sleep_hours: c.sleep === null ? null : r1(c.sleep / 60) });
     return { office_days: A.by.WFO.length, home_days: A.by.WFH.length, leave_days: A.by.Leave.length, holiday_days: A.by.Holiday.length,
-      office_pct_of_working_days: pc(A.office), unlogged_weekdays: A.missing.length, office: side(A.cmpO), home: side(A.cmpH) };
+      office_pct_of_working_days: pci(A.office), unlogged_weekdays: A.missing.length, office: side(A.cmpO), home: side(A.cmpH) };
   }
   if (metric === 'spending') {
     const SP = analyzeSpending(), yms = new Set(rangeDays(a, b).map(monthOf));
@@ -2922,7 +2922,7 @@ function seriesPoints(metric, win) {
   if (metric === 'sleep') return (analyzeSleep(win).nights || []).map(x => [x.date, r1(x.dur / 60)]);
   if (metric === 'weight') return (analyzeWeight(win)?.pts || []).map(p => [p[0], p[1]]);
   if (metric === 'water') return Object.entries(S.data.water?.days || {}).filter(([d]) => d >= a && d <= b).sort(([x], [y]) => x < y ? -1 : 1).map(([d, v]) => [d, v.total]);
-  if (metric === 'dos' || metric === 'habits') { const g = analyzeGrid(metric, win); return g ? g.logged.map((d, i) => [d, pc(g.score[i])]) : []; }
+  if (metric === 'dos' || metric === 'habits') { const g = analyzeGrid(metric, win); return g ? g.logged.map((d, i) => [d, pci(g.score[i])]) : []; }
   return [];
 }
 /** long series are averaged per week so the model and the charts stay small */
@@ -3116,13 +3116,102 @@ function printReport(r) {
   window.print();
 }
 
+/* ---------- admin assistant: participants' completion only ---------- */
+const isAdminChat = () => S.user?.role === 'admin';
+
+function adminPerson(name) {
+  const rows = S.group?.rows || [], key = norm(name);
+  return rows.find(r => norm(r.name) === key) || rows.find(r => norm(r.name).includes(key)) || null;
+}
+function personFacts(r) {
+  const s = r.st;
+  return {
+    name: r.name, daily_dos_count: s.dos?.total ?? 0, habits_count: s.habits?.total ?? 0,
+    logged_today: s.todayPct !== null, today_pct: pci(s.todayPct), today_ticked: s.todayDone, today_total: s.total,
+    avg_7d_pct: pci(s.d7), avg_previous_7d_pct: pci(s.p7), avg_30d_pct: pci(s.d30),
+    daily_dos_30d_pct: pci(s.dos?.d30), habits_30d_pct: pci(s.habits?.d30),
+    days_logged_last_30: s.logged30, streak_days: s.streak, last_logged: s.lastLogged,
+    perfect_days_30d: s.perfect30, items_ticked_30d: s.ticks30, items_possible_30d: s.possible30
+  };
+}
+function groupFacts() {
+  const rows = S.group.rows, avg = f => { const v = rows.map(f).filter(x => x !== null && x !== undefined); return v.length ? mean(v) : null; };
+  const t = todayKey(), by = [...rows].filter(r => r.st.d30 !== null).sort((a, b) => b.st.d30 - a.st.d30);
+  const sum = k => rows.reduce((s, r) => s + (r.st[k] || 0), 0);
+  return {
+    year: S.group.year, people: rows.length, logged_today: rows.filter(r => r.st.todayPct !== null).length,
+    avg_today_pct: pci(avg(r => r.st.todayPct)), avg_7d_pct: pci(avg(r => r.st.d7)), avg_30d_pct: pci(avg(r => r.st.d30)),
+    daily_dos_30d_pct: pci(avg(r => r.st.dos?.d30)), habits_30d_pct: pci(avg(r => r.st.habits?.d30)),
+    items_ticked_30d: sum('ticks30'), items_possible_30d: sum('possible30'), perfect_days_30d: sum('perfect30'),
+    top_30d: by.slice(0, 3).map(r => ({ name: r.name, pct: pci(r.st.d30) })), lowest_30d: by.slice(-3).reverse().map(r => ({ name: r.name, pct: pci(r.st.d30) })),
+    not_logged_for_3_days_or_more: rows.filter(r => !r.st.lastLogged || diffDays(r.st.lastLogged, t) >= 3).map(r => r.name),
+    bands_30d: { at_least_80: rows.filter(r => r.st.d30 !== null && r.st.d30 >= .8).length, from_50_to_79: rows.filter(r => r.st.d30 !== null && r.st.d30 >= .5 && r.st.d30 < .8).length, under_50: rows.filter(r => r.st.d30 !== null && r.st.d30 < .5).length }
+  };
+}
+
+function runAdminTool(name, a) {
+  a = a || {};
+  const G = S.group;
+  if (!G || !G.rows.length) throw new Error('No participant data is loaded for this year.');
+  if (name === 'list_participants') return { year: G.year, participants: G.rows.map(personFacts) };
+  if (name === 'get_group_summary') return groupFacts();
+  if (name === 'get_participant' || name === 'get_series') {
+    const r = adminPerson(a.name);
+    if (!r) throw new Error(`No participant called "${a.name}". Known participants: ${G.rows.map(x => x.name).join(', ')}.`);
+    if (name === 'get_participant') return { ...personFacts(r), weekday_avg_pct: Object.fromEntries(DOW.map((d, i) => [d, pci(r.st.dowAvg[i])])) };
+    const days = rangeDays(addDays(todayKey(), -29), todayKey());
+    return { name: r.name, points: days.map((d, i) => ({ date: d, completion_pct: r.st.series[i] === null ? null : pci(r.st.series[i]) })) };
+  }
+  if (name === 'publish_report') {
+    const asked = S.chat.msgs.some(m => m.role === 'user' && /report|document|\bdocs?\b|pdf|download|export/i.test(m.content));
+    if (!asked) throw new Error('The user did not ask for a report or document. Answer in the chat with a short summary instead.');
+    const rep = buildAdminReport(a);
+    S.chat.reports.push(rep);
+    S.chat.ui.push({ role: 'report', report: rep });
+    return { ok: true, message: 'The report is now shown to the user with download buttons.' };
+  }
+  throw new Error('Unknown tool ' + name);
+}
+
+const ADMIN_TOOLS = (() => {
+  const fn = (name, description, properties = {}, required = []) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required } } });
+  const who = { name: { type: 'string', description: 'Participant name as shown in the app' } };
+  return [
+    fn('get_group_summary', 'Completion totals for everyone: averages, ticks, perfect days, top and lowest people, who has not logged lately.'),
+    fn('list_participants', 'Completion statistics for every participant.'),
+    fn('get_participant', 'Completion statistics for one participant, including weekday averages.', who, ['name']),
+    fn('get_series', 'Daily completion percentage for one participant over the last 30 days.', who, ['name']),
+    fn('publish_report', 'Show the finished completion report to the user. Call once, after get_group_summary and list_participants. An overview chart is added automatically; supply only the headings and narrative.',
+      { title: { type: 'string' }, subtitle: { type: 'string' },
+        sections: { type: 'array', items: { type: 'object', properties: { heading: { type: 'string' }, markdown: { type: 'string', description: 'Short narrative, bullets allowed with "- ", **bold** allowed.' } }, required: ['heading', 'markdown'] } } },
+      ['title', 'sections'])
+  ];
+})();
+
+function buildAdminReport(a) {
+  const G = S.group, t = todayKey(), rows = G.rows;
+  const secs = (Array.isArray(a.sections) ? a.sections : []).filter(x => x && x.heading && x.markdown).slice(0, 6);
+  if (!secs.length) throw new Error('No sections.');
+  const f = groupFacts(), ord = [...rows].sort((x, y) => (y.st.d30 ?? -1) - (x.st.d30 ?? -1));
+  const show = v => v === null || v === undefined ? '—' : v + '%';
+  const spec = { type: 'bar', labels: ord.map(r => r.name), datasets: [
+    { label: 'Daily Dos (%)', data: ord.map(r => r.st.dos?.d30 == null ? null : pci(r.st.dos.d30)), color: CH.green },
+    { label: 'Habits (%)', data: ord.map(r => r.st.habits?.d30 == null ? null : pci(r.st.habits.d30)), color: CH.blue }] };
+  const overview = { id: 'group', heading: 'Completion overview (last 30 days)', spec, img: chartImage(spec), md: '',
+    tiles: [['People', f.people], ['Logged today', f.logged_today], ['Average (30 days)', show(f.avg_30d_pct)], ['Daily Dos', show(f.daily_dos_30d_pct)], ['Habits', show(f.habits_30d_pct)],
+      ['Items ticked', f.items_possible_30d ? `${f.items_ticked_30d}/${f.items_possible_30d}` : '—'], ['Perfect days', f.perfect_days_30d]] };
+  return { title: String(a.title || 'Participant completion report').slice(0, 100), subtitle: String(a.subtitle || '').slice(0, 160), from: addDays(t, -29), to: t, created: t,
+    sections: [overview, ...secs.map(x => ({ id: 'note', heading: String(x.heading).slice(0, 80), tiles: [], spec: null, img: '', md: String(x.markdown).slice(0, 3000) }))] };
+}
+
 /* ---------- agent loop ---------- */
 const trimMsgs = msgs => { let m = msgs.slice(-30); while (m.length && m[0].role !== 'user') m.shift(); return m; };
 
 async function agentLoop() {
-  const ctx = { today: todayKey(), first: S.idx.first, last: S.idx.last };
+  const admin = isAdminChat();
+  const ctx = admin ? { today: todayKey(), first: `${S.group.year}-01-01`, last: `${S.group.year}-12-31` } : { today: todayKey(), first: S.idx.first, last: S.idx.last };
   for (let round = 0; round < 8; round++) {
-    const { message } = await api('chat', { messages: trimMsgs(S.chat.msgs), tools: AI_TOOLS, context: ctx });
+    const { message } = await api('chat', { messages: trimMsgs(S.chat.msgs), tools: admin ? ADMIN_TOOLS : AI_TOOLS, context: ctx });
     S.chat.msgs.push(message);
     const calls = message.tool_calls || [];
     if (message.content?.trim()) S.chat.ui.push({ role: 'bot', text: message.content.trim() });
@@ -3130,7 +3219,7 @@ async function agentLoop() {
     if (!calls.length) return;
     for (const tc of calls) {
       let out;
-      try { out = runTool(tc.function.name, JSON.parse(tc.function.arguments || '{}')); }
+      try { out = (admin ? runAdminTool : runTool)(tc.function.name, JSON.parse(tc.function.arguments || '{}')); }
       catch (err) { out = { error: err.message }; }
       S.chat.msgs.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(out) });
     }
@@ -3153,9 +3242,16 @@ async function sendChat(text) {
 function renderAssistant() {
   const body = $('#assistantBody');
   S.chat.paint = null;
-  if (!S.data || S.groupMode) return fill(body, h('p', { class: 'sub' }, 'Open one person’s year to use the assistant.'));
-  if (S.demo) return fill(body, h('p', { class: 'sub' }, 'The assistant needs your real tracker and is not available in demo mode.'));
-  if (S.readOnly) return fill(body, h('p', { class: 'sub' }, 'The assistant is only available on your own tracker.'));
+  const admin = isAdminChat();
+  if (admin) {
+    $$('#tab-assistant [data-empty]').forEach(e => { e.hidden = true; });
+    $$('#tab-assistant [data-ready]').forEach(e => { e.hidden = false; });
+    if (!S.group || !S.group.rows.length) return fill(body, h('p', { class: 'sub' }, S.year ? 'Loading everyone… open Today, then come back.' : 'Nobody has uploaded a file yet.'));
+  } else {
+    if (!S.data || S.groupMode) return fill(body, h('p', { class: 'sub' }, 'Open one person’s year to use the assistant.'));
+    if (S.demo) return fill(body, h('p', { class: 'sub' }, 'The assistant needs your real tracker and is not available in demo mode.'));
+    if (S.readOnly) return fill(body, h('p', { class: 'sub' }, 'The assistant is only available on your own tracker.'));
+  }
 
   const log = h('div', { class: 'chat-log', 'aria-live': 'polite' });
   const bubble = u => {
@@ -3174,8 +3270,8 @@ function renderAssistant() {
   };
   const paint = () => {
     const empty = !S.chat.ui.length;
-    fill(log, empty ? h('div', { class: 'chat-empty' }, h('p', null, 'Ask about your sleep, habits, water, weight, work days or spending, or ask for a weekly, monthly or yearly report.'),
-      h('div', { class: 'chips-row' }, ['How did I sleep this month?', 'Which habits am I missing most?', 'Compare my office and home days', 'I’d like a report'].map(q => h('button', { class: 'chip', onclick: () => sendChat(q) }, q)))) : null,
+    fill(log, empty ? h('div', { class: 'chat-empty' }, h('p', null, admin ? 'Ask about how participants are doing: who completes the most, who has gone quiet, trends, or ask for a completion report.' : 'Ask about your sleep, habits, water, weight, work days or spending, or ask for a weekly, monthly or yearly report.'),
+      h('div', { class: 'chips-row' }, (admin ? ['Who is doing best this month?', 'Who has not logged lately?', 'How is the group doing overall?', 'I’d like a report'] : ['How did I sleep this month?', 'Which habits am I missing most?', 'Compare my office and home days', 'I’d like a report']).map(q => h('button', { class: 'chip', onclick: () => sendChat(q) }, q)))) : null,
       S.chat.ui.map(bubble), S.chat.busy ? h('div', { class: 'chat-msg bot typing' }, h('span'), h('span'), h('span')) : null);
     input.disabled = S.chat.busy; sendBtn.disabled = S.chat.busy;
     log.scrollTop = log.scrollHeight;
@@ -3185,7 +3281,7 @@ function renderAssistant() {
   const form = h('form', { class: 'chat-form', onsubmit: e => { e.preventDefault(); const t = input.value; input.value = ''; sendChat(t); } }, input, sendBtn);
   const newBtn = h('button', { class: 'btn small ghost', onclick: () => { if (S.chat.busy) return; S.chat.msgs = []; S.chat.ui = []; paint(); } }, icon('refresh'), 'New chat');
   fill(body, h('div', { class: 'card chat-card' },
-    h('div', { class: 'chat-head' }, h('p', { class: 'sub' }, 'Your questions and summary statistics (no notes) are sent to Groq to write answers. Not medical advice.'), newBtn),
+    h('div', { class: 'chat-head' }, h('p', { class: 'sub' }, admin ? 'Participant names and completion statistics (no task names or personal data) are sent to Groq to write answers.' : 'Your questions and summary statistics (no notes) are sent to Groq to write answers. Not medical advice.'), newBtn),
     log, form));
   S.chat.paint = paint;
   paint();

@@ -631,3 +631,11 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
   body.printing-report #printArea { display: block; }
   body.printing-report { background: #fff; }
 }
+
+.chat-log > * { flex-shrink: 0; }
+.chat-msg.md { white-space: normal; }
+.chat-msg.md p { margin: 0 0 6px; }
+.chat-msg.md p:last-child, .chat-msg.md ul:last-child { margin-bottom: 0; }
+.chat-msg.md ul { margin: 4px 0; padding-left: 18px; }
+.chat-msg.md h4 { margin: 6px 0 2px; font-size: .95rem; }
+.rep h1, .rep h2, .rep h4, .rep b { color: #1d2b26; }

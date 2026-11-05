@@ -3162,6 +3162,7 @@ function renderAssistant() {
             h('button', { class: 'btn small ghost', onclick: () => downloadFile(reportFile(r, 'md'), 'text/markdown', reportMarkdown(r)) }, icon('markdown'), 'Markdown'))),
         (() => { const v = h('div', { class: 'chat-rep-view' }); v.innerHTML = reportHTML(r); return v; })());
     }
+    if (u.role === 'bot') { const m = h('div', { class: 'chat-msg bot md' }); m.innerHTML = mdToHtml(u.text); return m; }
     return h('div', { class: 'chat-msg ' + u.role }, u.text);
   };
   const paint = () => {

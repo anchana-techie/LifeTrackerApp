@@ -2,6 +2,12 @@
 
 Newest first. Add a line here with every feature change.
 
+## 2026-11-05
+- **Added** Sleep after midnight: tapping **Sleep** between 12 am and the cutoff (default 4 am, Settings > Late-night sleep, saved in this browser) saves the bedtime to the previous day, so a 12:30 am bedtime on 5 Nov counts for 4 Nov. Sleep totals already handle times across midnight.
+- **Added** Tasks tab: add a Daily Do or Habit mid-year with a start date, duration, priority and time of day. It is appended to the Daily Dos / Habits sheet and shows only from its start date (earlier days are hidden and not counted). Existing tasks get the same details. Stored in a new `Task Settings` sheet.
+- **Added** TimeGenerator tab: pick a day plus wake and sleep times (a time after midnight is fine). It suggests a time slot for each task by time of day and priority, and an evenly spaced water schedule from your water goal and tumbler, ending two hours before bed.
+- **Changed** Apps Script has a new action (`saveTask`); redeploy `Code.gs` as a new version.
+
 ## 2026-11-03
 - **Changed** Marking a Buy list item as bought now ticks the **Products** sheet only if that product is already there. Anything else is a one-time buy: it is recorded in a new `One-time Buys` sheet (Date, Product) and never added to Products or the restock reminders. Redeploy `Code.gs` as a new version.
 - **Added** Files tab for members and the admin: pick an uploaded year and read its sheets (Daily Dos, Habits, Products, Period, Weight, Month list, Sleep, Water) as read-only tables, month by month. The admin can open any member's files.

@@ -569,3 +569,28 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
 .task-list h3 { margin-bottom: 6px; }
 .task-add { display: flex; gap: 8px; margin-top: 8px; }
 .task-add input { flex: 1; min-width: 0; }
+
+/* ---------- tasks & TimeGenerator ---------- */
+.settings label.check-row { flex-direction: row; align-items: center; gap: 8px; }
+.settings label.check-row input { width: auto; }
+.task-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.task-row { display: grid; grid-template-columns: minmax(0, 1fr) 70px 96px 96px; gap: 8px; align-items: end; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+.task-row:last-child { border-bottom: 0; }
+.task-name { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: .9rem; font-weight: 600; }
+.task-name .ti { color: var(--accent-strong); font-size: 1.15rem; }
+.task-name .pill { margin-left: 0; }
+.settings .task-f { margin-top: 0; gap: 3px; font-size: .72rem; }
+.task-f input, .task-f select { padding: 6px 8px; font-size: .85rem; min-width: 0; }
+.tg-list { display: flex; flex-direction: column; margin-top: 8px; }
+.tg-row { display: grid; grid-template-columns: 110px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: .92rem; }
+.tg-row:last-child { border-bottom: 0; }
+.tg-time { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent-strong); }
+.tg-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tg-name .ti { color: var(--accent-strong); font-size: 1.1rem; }
+.tg-row .pill { margin-left: 0; }
+@media (max-width: 560px) {
+  .task-row { grid-template-columns: 1fr 1fr 1fr; }
+  .task-name { grid-column: 1 / -1; }
+  .tg-row { grid-template-columns: 96px minmax(0, 1fr); }
+  .tg-row .pill { grid-column: 2; justify-self: start; }
+}

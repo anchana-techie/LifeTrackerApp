@@ -207,6 +207,14 @@ function applyLocal(action, p) {
   } else if (action === 'setSleep') {
     const day = (S.data.sleep.days[p.date] ||= { wake: '', sleep: '' });
     day[p.kind] = p.time;
+  } else if (action === 'saveTask') {
+    const tasks = (S.data.tasks ||= {}), name = String(p.name).replace(/\s+/g, ' ').trim();
+    let kind = p.kind;
+    if (p.create) { if (sh[kind] && !sh[kind].items.some(i => norm(i.name) === norm(name))) sh[kind].items.push({ name, marked: [] }); }
+    else kind = ['dos', 'habits'].find(k => sh[k]?.items.some(i => norm(i.name) === norm(name))) || kind;
+    const key = Object.keys(tasks).find(k => norm(k) === norm(name)) || name;
+    tasks[key] = { kind, start: p.start || '', duration: p.duration ? Number(p.duration) : null, priority: Number(p.priority) || 2, period: p.period || '' };
+    buildIndex();
   }
 }
 
@@ -233,6 +241,7 @@ async function loadSheet({ quiet = false } = {}) {
     data.profile ||= { height: null, waterGoal: null, tumbler: null };
     data.water ||= { days: {} };
     data.sleep ||= { days: {} };
+    data.tasks ||= {};
     if (hidesPeriod()) data.sheets.period = null;   // male accounts: no period tracking or analysis
     S.data = data;
     buildIndex();
@@ -275,6 +284,7 @@ function buildIndex() {
     products: grid('products'), dos: grid('dos'), habits: grid('habits'),
     period: sh.period ? { dateSet: new Set(sh.period.dates), marked: new Set(sh.period.marked) } : null,
     weight: sh.weight ? { dateSet: new Set(sh.weight.dates), entries: sh.weight.entries, night: (sh.weight.night ||= {}) } : null,
+    tasks: new Map(Object.entries(S.data.tasks || {}).map(([k, v]) => [norm(k), v])),
     first: allDates[0], last: allDates[allDates.length - 1],
     year: (allDates[0] || todayKey()).slice(0, 4)
   };
@@ -322,6 +332,8 @@ function renderTab() {
   else if (S.tab === 'settings') { renderGroupEditor(); renderProfileBox(); }
   else if (S.tab === 'upload') renderUpload();
   else if (S.tab === 'files') renderFiles();
+  else if (S.tab === 'tasks') renderTasks();
+  else if (S.tab === 'timegen') renderTimegen();
   else if (S.tab === 'admin') renderAdmin();
 }
 
@@ -348,7 +360,10 @@ function autoGroup(name) {
   if (/night|dinner|evening|sleep/i.test(name)) return 'Evening';
   return 'Daytime';
 }
-const groupOf = name => store.get('groups', {})[name] || autoGroup(name);
+const taskMeta = name => S.idx?.tasks?.get(norm(name)) || null;
+const groupOf = name => store.get('groups', {})[name] || taskMeta(name)?.period || autoGroup(name);
+/** a task added mid-year only exists from its start date */
+const taskStarted = (name, date) => { const st = taskMeta(name)?.start; return !st || date >= st; };
 
 /* =========================================================
  * TODAY — pending edits can span many days
@@ -413,8 +428,9 @@ function dayScore(date) {
   let done = 0, total = 0;
   for (const k of ['dos', 'habits']) {
     const ix = S.idx[k]; if (!ix) continue;
-    total += ix.items.length;
-    done += ix.items.filter(n => currentGrid(k, n, date)).length;
+    const items = ix.items.filter(n => taskStarted(n, date));
+    total += items.length;
+    done += items.filter(n => currentGrid(k, n, date)).length;
   }
   return { done, total, pct: total ? done / total : 0 };
 }
@@ -494,7 +510,7 @@ function buildSummary(date) {
 
 function tapTile(k, name, date, extra = {}) {
   const ix = S.idx[k];
-  const inSheet = ix.dateSet.has(date);
+  const inSheet = ix.dateSet.has(date) && taskStarted(name, date);
   const btn = h('button', { class: 'tap', disabled: !inSheet, title: inSheet ? name : 'This date is not in the sheet' });
   const paint = () => {
     const on = currentGrid(k, name, date);
@@ -528,13 +544,13 @@ function buildDay() {
 
   if (S.idx.dos) {
     for (const [g, ic] of GROUPS) {
-      const names = S.idx.dos.items.filter(n => groupOf(n) === g);
+      const names = S.idx.dos.items.filter(n => groupOf(n) === g && taskStarted(n, date));
       if (!names.length) continue;
       wrap.append(section(ic, g, doneOf('dos', names), h('div', { class: 'tiles-grid' }, names.map(n => tapTile('dos', n, date)))));
     }
   }
   if (S.idx.habits) {
-    const names = S.idx.habits.items;
+    const names = S.idx.habits.items.filter(n => taskStarted(n, date));
     wrap.append(section('leaf', 'Habits', doneOf('habits', names), h('div', { class: 'tiles-grid' }, names.map(n => tapTile('habits', n, date)))));
   }
 
@@ -700,6 +716,8 @@ function buildWater(date) {
 }
 
 /* ---------- sleep: tap Wake up / Sleep to stamp the current time ---------- */
+/** hour (0-6) before which a Sleep tap counts as the previous day's bedtime; 0 = off */
+const sleepCutoff = () => { const v = Number(store.get('sleepCutoff', 4)); return v >= 0 && v <= 6 ? v : 4; };
 const clockMins = t => { const [hh, mm] = t.split(':').map(Number); return hh * 60 + mm; };
 const durText = m => `${Math.floor(m / 60)}h ${pad(m % 60)}m`;
 
@@ -711,7 +729,14 @@ function buildSleep(date) {
     const input = h('input', { type: 'time', 'aria-label': `${label} time`, disabled: !inRange,
       onchange: e => { sendQuick('setSleep', { date, kind, time: e.target.value }); paint(); } });
     const btn = h('button', { class: 'btn sleep-btn', disabled: !(inRange && isToday), title: isToday ? '' : 'Buttons record the current time, so they work on today only. Use the time box to fix other days.',
-      onclick: () => { sendQuick('setSleep', { date, kind, time: nowHM() }); paint(); } }, icon(ico), label);
+      onclick: () => {
+        const now = nowHM();
+        let target = date;   // after midnight but before the cutoff, bedtime belongs to the day that just ended
+        if (kind === 'sleep' && clockMins(now) < sleepCutoff() * 60 && addDays(date, -1) >= S.idx.first) target = addDays(date, -1);
+        sendQuick('setSleep', { date: target, kind, time: now });
+        if (target !== date) toast(`Saved as bedtime for ${fmt(target)}, since it is past midnight.`);
+        paint();
+      } }, icon(ico), label);
     const paintCol = () => { input.value = get(date)[kind]; };
     return { box: h('div', { class: 'sleep-col' }, btn, h('label', { class: 'sleep-time' }, h('span', null, doneLabel), input)), input, paintCol };
   };
@@ -722,6 +747,7 @@ function buildSleep(date) {
     summary.textContent = w && prevBed ? `Last night: ${durText((clockMins(w) - clockMins(prevBed) + 1440) % 1440)} (${prevBed} → ${w})`
       : w || get(date).sleep ? "The sleep total appears once last night's bedtime and this morning's wake-up are both logged."
       : isToday ? 'Tap Wake up in the morning and Sleep at night. The current time is saved.' : 'Nothing logged for this day.';
+    if (isToday && sleepCutoff() && clockMins(nowHM()) < sleepCutoff() * 60 && addDays(date, -1) >= S.idx.first) summary.textContent += ` It is past midnight, so Sleep will be saved to ${fmt(addDays(date, -1))}.`;
   }
   paint();
   return section('moon', 'Sleep', null, h('div', { class: 'card sleep-card' }, h('div', { class: 'sleep-actions' }, wake.box, bed.box), summary));
@@ -879,7 +905,7 @@ function buildWeek() {
   const row = (k, name) => {
     grid.append(h('div', { class: 'wn', title: name }, icon(iconFor(name, k)), h('span', null, name)));
     days.forEach(d => grid.append(cell(() => currentGrid(k, name, d), on => setGrid(k, name, d, on), () => pkey(d, name) in S.pending.grid[k],
-      S.idx[k].dateSet.has(d), `${name}, ${fmtLong(d)}`)));
+      S.idx[k].dateSet.has(d) && taskStarted(name, d), `${name}, ${fmtLong(d)}`)));
   };
 
   const k = S.weekCat;
@@ -2550,9 +2576,182 @@ async function renderAdmin() {
   } catch (err) { fill(memberBox, h('p', { class: 'sub err' }, err.message)); }
 }
 
+/* =========================================================
+ * TASKS — add Daily Dos / Habits mid-year, set duration / priority / period
+ * ======================================================= */
+const PRIORITIES = [[1, 'High'], [2, 'Medium'], [3, 'Low']];
+const DEFAULT_MIN = { dos: 30, habits: 10 };
+const KIND_LABEL = { dos: 'Daily Do', habits: 'Habit' };
+
+function renderTasks() {
+  const body = $('#tasksBody');
+  if (!S.data || S.groupMode) return fill(body, h('p', { class: 'sub' }, 'Open one person’s year to manage tasks.'));
+  const ro = S.readOnly;
+  const opt = (v, l, sel) => { const o = h('option', { value: String(v) }, l); if (String(sel) === String(v)) o.selected = true; return o; };
+
+  // ----- add form -----
+  const nameIn = h('input', { type: 'text', placeholder: 'e.g. Evening walk', required: true, maxlength: '80', disabled: ro });
+  const kindSel = h('select', { disabled: ro }, ['dos', 'habits'].filter(k => S.idx[k]).map(k => opt(k, KIND_LABEL[k], 'dos')));
+  const startIn = h('input', { type: 'date', min: S.idx.first, max: S.idx.last, value: clampDate(todayKey()), required: true, disabled: ro });
+  const durIn = h('input', { type: 'number', min: '1', max: '720', step: '1', placeholder: `${DEFAULT_MIN.dos}`, inputmode: 'numeric', disabled: ro });
+  const priSel = h('select', { disabled: ro }, PRIORITIES.map(([v, l]) => opt(v, l, 2)));
+  const perSel = h('select', { disabled: ro }, GROUPS.map(([g]) => opt(g, g, 'Daytime')));
+  kindSel.addEventListener('change', () => { durIn.placeholder = String(DEFAULT_MIN[kindSel.value]); });
+  const form = h('form', { class: 'card settings', onsubmit: e => {
+    e.preventDefault();
+    const name = nameIn.value.replace(/\s+/g, ' ').trim();
+    if (!name) return;
+    if (['dos', 'habits', 'products'].some(k => S.idx[k]?.items.some(n => norm(n) === norm(name)))) return toast('A Daily Do, Habit or Product with that name already exists.', true);
+    if (!startIn.value || startIn.value < S.idx.first || startIn.value > S.idx.last) return toast(`Pick a start date inside ${S.idx.year}.`, true);
+    const kind = kindSel.value;
+    if (kind === 'dos') { const g = store.get('groups', {}); g[name] = perSel.value; store.set('groups', g); }
+    sendQuick('saveTask', { name, kind, create: true, start: startIn.value, duration: durIn.value ? Number(durIn.value) : null, priority: Number(priSel.value), period: perSel.value });
+    toast(`Added “${name}”. It shows from ${fmt(startIn.value)}.`);
+    renderTasks();
+  } },
+    h('h2', null, 'Add a task'),
+    h('p', { class: 'sub' }, 'It is added to your sheet and shows in tracking from its start date. Earlier days are left untouched.'),
+    h('label', null, 'Name', nameIn),
+    h('label', null, 'List', kindSel),
+    h('label', null, 'Starts on', startIn),
+    h('label', null, 'Takes (minutes, optional)', durIn),
+    h('label', null, 'Priority', priSel),
+    h('label', null, 'Best time of day', perSel),
+    h('div', { class: 'row-actions' }, h('button', { class: 'btn primary', disabled: ro }, icon('plus'), 'Add task')));
+
+  // ----- existing tasks -----
+  const rowFor = (k, name) => {
+    const m = taskMeta(name) || {};
+    const durI = h('input', { type: 'number', min: '1', max: '720', step: '1', value: m.duration || '', placeholder: String(DEFAULT_MIN[k]), 'aria-label': `Minutes for ${name}`, disabled: ro });
+    const priS = h('select', { 'aria-label': `Priority for ${name}`, disabled: ro }, PRIORITIES.map(([v, l]) => opt(v, l, m.priority || 2)));
+    const perS = h('select', { 'aria-label': `Time of day for ${name}`, disabled: ro }, GROUPS.map(([g]) => opt(g, g, groupOf(name))));
+    const save = () => {
+      if (durI.value && !(Number(durI.value) >= 1 && Number(durI.value) <= 720)) return toast('Minutes should be between 1 and 720.', true);
+      if (k === 'dos') { const g = store.get('groups', {}); g[name] = perS.value; store.set('groups', g); }
+      sendQuick('saveTask', { name, kind: k, create: false, start: taskMeta(name)?.start || '', duration: durI.value ? Number(durI.value) : null, priority: Number(priS.value), period: perS.value });
+    };
+    [durI, priS, perS].forEach(el => el.addEventListener('change', save));
+    return h('div', { class: 'task-row' },
+      h('div', { class: 'task-name' }, icon(iconFor(name, k)), h('span', null, name), m.start ? h('span', { class: 'pill' }, `from ${fmt(m.start)}`) : null),
+      h('label', { class: 'task-f' }, h('span', null, 'Min'), durI), h('label', { class: 'task-f' }, h('span', null, 'Priority'), priS), h('label', { class: 'task-f' }, h('span', null, 'When'), perS));
+  };
+  const lists = ['dos', 'habits'].filter(k => S.idx[k]?.items.length).map(k =>
+    h('div', { class: 'card settings' }, h('h2', null, k === 'dos' ? 'Daily Dos' : 'Habits'),
+      h('p', { class: 'sub' }, 'These details are used by TimeGenerator. Blank minutes uses the default.'),
+      h('div', { class: 'task-list' }, S.idx[k].items.map(n => rowFor(k, n)))));
+  fill(body, h('div', { class: 'settings-grid' }, form), h('div', { class: 'settings-grid', style: 'margin-top:18px' }, lists));
+}
+
+/* =========================================================
+ * TIMEGENERATOR — suggested times for tasks and water
+ * ======================================================= */
+const TG = { date: null, wake: '', sleep: '', skipDone: true };
+
+/** median wake / bedtime over the last 14 logged days, with sensible fallbacks */
+function typicalSleep() {
+  const days = S.data.sleep?.days || {}, keys = Object.keys(days).sort().slice(-14);
+  const med = a => a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] : null;
+  const wake = med(keys.map(d => days[d].wake).filter(Boolean).map(clockMins));
+  const bed = med(keys.map(d => days[d].sleep).filter(Boolean).map(clockMins).map(m => m < 720 ? m + 1440 : m));
+  return { wake: wake ?? 390, sleep: (bed ?? 1380) % 1440 };
+}
+
+function planDay(date, wakeM, sleepM, skipDone) {
+  if (sleepM <= wakeM) sleepM += 1440;   // bedtime after midnight
+  const L = sleepM - wakeM;
+  const wins = [['Morning', wakeM], ['Daytime', wakeM + L * .3], ['Evening', wakeM + L * .75]];
+  const tasks = [];
+  for (const k of ['dos', 'habits']) (S.idx[k]?.items || []).forEach((n, i) => {
+    if (!taskStarted(n, date) || (skipDone && currentGrid(k, n, date))) return;
+    const m = taskMeta(n);
+    tasks.push({ name: n, kind: k, dur: m?.duration || DEFAULT_MIN[k], pri: m?.priority || 2, period: groupOf(n), order: i + (k === 'habits' ? 1000 : 0) });
+  });
+  const end = sleepM - 30;   // keep the last half hour free to wind down
+  const placed = [], unplaced = [];
+  let cursor = wakeM;
+  for (const [per, from] of wins) {
+    cursor = Math.max(cursor, Math.round(from / 5) * 5);
+    for (const t of tasks.filter(x => x.period === per).sort((a, b) => a.pri - b.pri || a.order - b.order)) {
+      if (cursor + t.dur > end) { unplaced.push(t); continue; }
+      placed.push({ ...t, start: cursor, end: cursor + t.dur });
+      cursor += t.dur + 5;
+    }
+  }
+  return { placed, unplaced, sleepM };
+}
+
+/** even spacing from just after waking to two hours before bed */
+function waterPlan(wakeM, sleepM) {
+  const p = S.data.profile;
+  if (!p?.waterGoal || !p?.tumbler) return null;
+  if (sleepM <= wakeM) sleepM += 1440;
+  const n = Math.ceil(p.waterGoal / p.tumbler), a = wakeM + 15, b = Math.max(a, sleepM - 120);
+  let sum = 0;
+  return Array.from({ length: n }, (_, i) => {
+    const ml = Math.min(p.tumbler, p.waterGoal - i * p.tumbler);
+    sum += ml;
+    return { t: Math.round((n === 1 ? a : a + i * (b - a) / (n - 1)) / 5) * 5, ml, sum };
+  });
+}
+
+function renderTimegen() {
+  const body = $('#timegenBody');
+  if (!S.data || S.groupMode) return fill(body, h('p', { class: 'sub' }, 'Open one person’s year to use TimeGenerator.'));
+  if (!TG.date || TG.date < S.idx.first || TG.date > S.idx.last) TG.date = clampDate(todayKey());
+  if (!TG.wake || !TG.sleep) {
+    const ty = typicalSleep();
+    TG.wake = clockText(ty.wake); TG.sleep = clockText(ty.sleep);
+  }
+  const out = h('div');
+  const dateIn = h('input', { type: 'date', min: S.idx.first, max: S.idx.last, value: TG.date });
+  const wakeIn = h('input', { type: 'time', value: TG.wake }), sleepIn = h('input', { type: 'time', value: TG.sleep });
+  const skip = h('input', { type: 'checkbox', checked: TG.skipDone });
+  const go = () => {
+    if (!dateIn.value || !wakeIn.value || !sleepIn.value) return toast('Fill in the day, wake-up and sleep times.', true);
+    Object.assign(TG, { date: dateIn.value, wake: wakeIn.value, sleep: sleepIn.value, skipDone: skip.checked });
+    fill(out, buildPlan());
+  };
+  const form = h('form', { class: 'card settings', onsubmit: e => { e.preventDefault(); go(); } },
+    h('h2', null, 'Plan a day'),
+    h('p', { class: 'sub' }, 'Wake and sleep times start from your recent average. Change them for the day you are planning. A sleep time after midnight is fine.'),
+    h('label', null, 'Day', dateIn),
+    h('label', null, 'Wake up', wakeIn),
+    h('label', null, 'Sleep', sleepIn),
+    h('label', { class: 'check-row' }, skip, 'Skip tasks already ticked'),
+    h('div', { class: 'row-actions' }, h('button', { class: 'btn primary' }, icon('clock-play'), 'Generate')));
+  fill(body, form, out);
+  go();
+}
+
+function buildPlan() {
+  const wakeM = clockMins(TG.wake), sleepM = clockMins(TG.sleep);
+  const P = planDay(TG.date, wakeM, sleepM, TG.skipDone);
+  const water = waterPlan(wakeM, sleepM);
+  const taskRows = P.placed.map(x => h('div', { class: 'tg-row' },
+    h('span', { class: 'tg-time' }, `${clockText(x.start)} – ${clockText(x.end)}`),
+    h('span', { class: 'tg-name' }, icon(iconFor(x.name, x.kind)), x.name),
+    h('span', { class: 'pill' + (x.pri === 1 ? ' warn' : '') }, `${x.dur} min · ${PRIORITIES[x.pri - 1][1]}`)));
+  const tasksCard = h('div', { class: 'card', style: 'margin-top:18px' },
+    h('h2', null, `Tasks · ${fmt(TG.date, { weekday: 'long', day: 'numeric', month: 'short' })}`),
+    h('p', { class: 'sub' }, `Awake ${clockText(wakeM)} to ${clockText(sleepM)}. Tasks follow their time of day, high priority first.`),
+    taskRows.length ? h('div', { class: 'tg-list' }, taskRows) : h('p', { class: 'sub' }, 'No tasks left to schedule.'),
+    P.unplaced.length ? h('p', { class: 'sub', style: 'margin-top:12px' }, `Not enough time before bed for: ${P.unplaced.map(x => x.name).join(', ')}. Shorten durations or move bedtime later.`) : null);
+  const waterCard = h('div', { class: 'card', style: 'margin-top:18px' },
+    h('h2', null, 'Water'),
+    water ? [h('p', { class: 'sub' }, `${S.data.profile.waterGoal} ml in ${water.length} drinks of up to ${S.data.profile.tumbler} ml, spaced evenly. The last one is two hours before bed.`),
+      h('div', { class: 'tg-list' }, water.map(w => h('div', { class: 'tg-row' },
+        h('span', { class: 'tg-time' }, clockText(w.t)), h('span', { class: 'tg-name' }, icon('glass-full'), `${w.ml} ml`), h('span', { class: 'pill teal' }, `${w.sum} ml total`))))]
+      : h('p', { class: 'sub' }, 'Set your water goal and tumbler size in Settings to get a water schedule.'));
+  return [tasksCard, waterCard];
+}
+
 function init() {
   setLoader(true);
   $$('.nav-btn').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+  const cutSel = $('#cutoffSel');
+  for (let i = 0; i <= 6; i++) cutSel.append(h('option', { value: String(i) }, i === 0 ? 'Off (always same day)' : `${i}:00 am`));
+  cutSel.value = String(sleepCutoff());
+  cutSel.addEventListener('change', () => { store.set('sleepCutoff', Number(cutSel.value)); toast('Saved'); });
   applyTheme(store.get('theme', null) || 'auto');
   $$('[data-theme-toggle]').forEach(b => b.addEventListener('click', () => {
     const cur = document.documentElement.dataset.theme || 'auto';

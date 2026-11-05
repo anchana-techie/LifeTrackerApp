@@ -65,6 +65,7 @@ function doPost(e) {
           case 'addWater':     result = addWater_(ss, req); break;
           case 'undoWater':    result = undoWater_(ss, req); break;
           case 'setSleep':     result = setSleep_(ss, req); break;
+          case 'saveTask':     result = saveTask_(ss, req); break;
           default: throw new Error('Unknown action: ' + req.action);
         }
         SpreadsheetApp.flush();
@@ -679,6 +680,89 @@ function setSleep_(ss, req) {
   return { saved: true };
 }
 
+// ---------- task settings: Task | List | Start date | Duration (min) | Priority | Period ----------
+
+var TASK_SHEET = 'Task Settings';
+var TASK_PERIODS = ['Morning', 'Daytime', 'Evening'];
+
+function readTasks_(ss, tz) {
+  var out = {};
+  var sh = ss.getSheetByName(TASK_SHEET);
+  if (!sh) return out;
+  var values = sh.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    var name = String(values[r][0] == null ? '' : values[r][0]).trim();
+    if (!name) continue;
+    var start = isDate_(values[r][2]) ? fmt_(values[r][2], tz) : String(values[r][2] || '').trim();
+    out[name] = {
+      kind: norm_(values[r][1]) === 'habits' ? 'habits' : 'dos',
+      start: /^\d{4}-\d{2}-\d{2}$/.test(start) ? start : '',
+      duration: Number(values[r][3]) > 0 ? Number(values[r][3]) : null,
+      priority: Number(values[r][4]) >= 1 && Number(values[r][4]) <= 3 ? Number(values[r][4]) : 2,
+      period: TASK_PERIODS.indexOf(String(values[r][5])) >= 0 ? String(values[r][5]) : ''
+    };
+  }
+  return out;
+}
+
+/**
+ * req: { name, kind:'dos'|'habits', create:true|false, start:'yyyy-MM-dd'|'', duration:min|null,
+ *        priority:1|2|3 (1 = high), period:'Morning'|'Daytime'|'Evening'|'' }
+ * create adds the task as a new row in Daily Dos / Habits (it must not exist yet); otherwise only its settings change.
+ */
+function saveTask_(ss, req) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var name = String(req.name || '').replace(/\s+/g, ' ').trim();
+  if (!name || name.length > 80) throw new Error('Task name is required (80 characters at most).');
+  var kind = req.kind === 'habits' ? 'habits' : 'dos';
+  var start = String(req.start || '');
+  if (start !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(start)) throw new Error('Invalid start date.');
+  var duration = req.duration === null || req.duration === '' || req.duration === undefined ? '' : Number(req.duration);
+  if (duration !== '' && !(duration >= 1 && duration <= 720)) throw new Error('Duration should be between 1 and 720 minutes.');
+  var priority = Number(req.priority || 2);
+  if (!(priority >= 1 && priority <= 3)) throw new Error('Priority should be 1, 2 or 3.');
+  var period = String(req.period || '');
+  if (period !== '' && TASK_PERIODS.indexOf(period) < 0) throw new Error('Unknown period.');
+
+  var found = null;
+  ['dos', 'habits', 'products'].forEach(function (k) {
+    var sh = findSheet_(ss, SHEETS[k]);
+    if (!sh) return;
+    var g = parseGrid_(sh, tz);
+    g.items.forEach(function (it) { if (norm_(it.name) === norm_(name)) found = { k: k, g: g, item: it }; });
+  });
+  if (req.create) {
+    if (found) throw new Error('"' + name + '" already exists in ' + found.g.sheet.getName() + '.');
+    var sheet = findSheet_(ss, SHEETS[kind]);
+    if (!sheet) throw new Error('Sheet for ' + kind + ' not found.');
+    var g2 = parseGrid_(sheet, tz);
+    var last = g2.items.length ? g2.items[g2.items.length - 1].row : g2.dateRow + 1;
+    sheet.insertRowAfter(last + 1);
+    sheet.getRange(last + 2, 1).setValue(name);
+  } else {
+    if (!found || found.k === 'products') throw new Error('"' + name + '" is not a Daily Do or Habit.');
+    kind = found.k;
+    name = found.item.name;
+  }
+
+  var sh2 = ss.getSheetByName(TASK_SHEET);
+  if (!sh2) {
+    sh2 = ss.insertSheet(TASK_SHEET);
+    sh2.getRange(1, 1, 1, 6).setValues([['Task', 'List', 'Start date', 'Duration (min)', 'Priority', 'Period']])
+      .setFontWeight('bold').setFontColor('#ffffff').setBackground('#2F5496');
+    sh2.getRange('C:C').setNumberFormat('@');
+    sh2.setColumnWidth(1, 220); sh2.setFrozenRows(1);
+  }
+  var values = sh2.getDataRange().getValues(), row = -1;
+  for (var r = 1; r < values.length; r++) {
+    if (norm_(values[r][0]) === norm_(name)) { row = r + 1; break; }
+  }
+  if (row < 0) row = Math.max(sh2.getLastRow(), 1) + 1;
+  sh2.getRange(row, 1, 1, 6).setNumberFormats([['@', '@', '@', '0', '0', '@']])
+    .setValues([[name, kind === 'habits' ? 'Habits' : 'Daily Dos', start, duration, priority, period]]);
+  return { saved: true };
+}
+
 // ---------- month buy list ----------
 
 function parseBuy_(sh) {
@@ -761,6 +845,7 @@ function readAll_(ss) {
   out.profile = readProfile_(ss);
   out.water = readWater_(ss, tz);
   out.sleep = readSleep_(ss, tz);
+  out.tasks = readTasks_(ss, tz);
   out.oneTime = readOneTime_(ss, tz);
   return out;
 }

@@ -79,6 +79,7 @@
       <button class="nav-btn" role="tab" data-tab="buy" aria-selected="false"><i class="ti ti-shopping-cart" aria-hidden="true"></i><span>Buy list</span></button>
       <button class="nav-btn" role="tab" data-tab="tasks" aria-selected="false"><i class="ti ti-list-check" aria-hidden="true"></i><span>Tasks</span></button>
       <button class="nav-btn" role="tab" data-tab="timegen" aria-selected="false"><i class="ti ti-clock-play" aria-hidden="true"></i><span>TimeGenerator</span></button>
+      <button class="nav-btn" role="tab" data-tab="assistant" aria-selected="false"><i class="ti ti-sparkles" aria-hidden="true"></i><span>Assistant</span></button>
       <button class="nav-btn" role="tab" data-tab="analysis" aria-selected="false"><i class="ti ti-chart-bar" aria-hidden="true"></i><span>Insights</span></button>
       <button class="nav-btn" role="tab" data-tab="upload" id="navUpload" aria-selected="false"><i class="ti ti-upload" aria-hidden="true"></i><span>Upload</span></button>
       <button class="nav-btn" role="tab" data-tab="files" aria-selected="false"><i class="ti ti-files" aria-hidden="true"></i><span>Files</span></button>
@@ -203,6 +204,15 @@
         </div>
       </section>
 
+      <!-- ASSISTANT -->
+      <section id="tab-assistant" class="tab-panel" role="tabpanel" hidden>
+        <div class="empty" data-empty><i class="ti ti-sparkles"></i><p>Load your sheet to chat about your data.</p></div>
+        <div data-ready hidden>
+          <div class="log-head"><div><h1>Assistant</h1><p class="sub">Ask questions about your tracker, or ask for a weekly, monthly or yearly report.</p></div></div>
+          <div id="assistantBody"></div>
+        </div>
+      </section>
+
       <!-- FILES -->
       <section id="tab-files" class="tab-panel" role="tabpanel" hidden>
         <div class="log-head"><div><h1>Files</h1><p class="sub" id="filesSub">Open an uploaded year to read it here. Nothing on this page can be edited.</p></div></div>
@@ -310,6 +320,7 @@
     </main>
   </div>
 </div>
+<div id="printArea"></div>
 <div class="loader" id="loader" role="status" aria-live="polite">
   <div class="loader-stars" aria-hidden="true"></div>
   <div class="loader-box">

@@ -47,6 +47,9 @@ function doPost(e) {
     // and would otherwise make every other request (and the next upload) wait behind it.
     if (req.action === 'upload') return json_({ ok: true, data: upload_(auth, req) });
 
+    // the assistant only talks to Groq; it never opens the user's sheet, so it needs no file lookup or lock
+    if (req.action === 'chat') return json_({ ok: true, data: chat_(auth, req) });
+
     var lock = LockService.getScriptLock();
     lock.waitLock(20000);
     try {
@@ -231,6 +234,109 @@ function resolveFile_(auth, req) {
   var fileId = fsStr_(doc, 'driveFileId');
   if (!fileId) throw new Error('The file link is incomplete.');
   return { fileId: fileId, readOnly: readOnly };
+}
+
+// ---------- assistant: a thin, authenticated proxy to Groq (OpenAI-compatible API) ----------
+// The browser runs the data tools and the agent loop; this only hides the API key,
+// checks who is asking, enforces a daily limit and fixes the system prompt.
+
+var GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+var GROQ_DEFAULT_MODEL = 'llama-3.3-70b-versatile';   // override with the GROQ_MODEL script property
+var CHAT_DAILY_CAP = 80;             // Groq calls per person per day (one chat turn can use several)
+var CHAT_MAX_MESSAGES = 40;
+var CHAT_MAX_CONTENT = 20000;
+
+/** Counts one call in Firestore (chat_usage/<uid>_<yyyyMMdd>, owner access only) and refuses past the cap. */
+function chatUsageBump_(uid) {
+  var id = uid + '_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
+  var headers = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), 'X-Goog-User-Project': prop_('FIREBASE_PROJECT_ID') };
+  var res = UrlFetchApp.fetch(fsBase_() + 'chat_usage/' + encodeURIComponent(id), { headers: headers, muteHttpExceptions: true });
+  var n = 0, code = res.getResponseCode();
+  if (code === 200) {
+    var f = JSON.parse(res.getContentText()).fields;
+    n = Number(f && f.count && f.count.integerValue || 0);
+  } else if (code !== 404) {
+    throw new Error('Could not check the daily assistant limit.');
+  }
+  if (n >= CHAT_DAILY_CAP) throw new Error('You have reached the daily assistant limit (' + CHAT_DAILY_CAP + ' steps). Please try again tomorrow.');
+  fsSet_('chat_usage/' + id, { userId: { stringValue: uid }, count: { integerValue: String(n + 1) } });
+}
+
+/** Keeps only well-formed user / assistant / tool messages; the system prompt is never taken from the browser. */
+function chatClean_(messages) {
+  if (!Array.isArray(messages) || !messages.length) throw new Error('Nothing to send.');
+  if (messages.length > CHAT_MAX_MESSAGES) throw new Error('This chat is too long. Start a new chat.');
+  return messages.map(function (m) {
+    var role = m && m.role;
+    var content = String(m && m.content != null ? m.content : '').slice(0, CHAT_MAX_CONTENT);
+    if (role === 'user') return { role: 'user', content: content };
+    if (role === 'tool') return { role: 'tool', tool_call_id: String(m.tool_call_id || '').slice(0, 100), content: content };
+    if (role === 'assistant') {
+      var out = { role: 'assistant', content: content };
+      if (Array.isArray(m.tool_calls) && m.tool_calls.length) {
+        out.tool_calls = m.tool_calls.slice(0, 8).map(function (t) {
+          return { id: String(t.id || '').slice(0, 100), type: 'function',
+            function: { name: String(t.function && t.function.name || '').slice(0, 64), arguments: String(t.function && t.function.arguments || '{}').slice(0, 8000) } };
+        });
+      }
+      return out;
+    }
+    throw new Error('Bad message.');
+  });
+}
+
+function chatTools_(tools) {
+  if (!Array.isArray(tools)) return [];
+  return tools.slice(0, 10).filter(function (t) { return t && t.type === 'function' && t.function && /^[a-z_]{1,40}$/.test(String(t.function.name)); })
+    .map(function (t) {
+      return { type: 'function', function: { name: t.function.name, description: String(t.function.description || '').slice(0, 600), parameters: t.function.parameters || { type: 'object', properties: {} } } };
+    });
+}
+
+function chatSystem_(ctx) {
+  var d = /^\d{4}-\d{2}-\d{2}$/;
+  ctx = ctx || {};
+  var today = d.test(String(ctx.today)) ? ctx.today : '', first = d.test(String(ctx.first)) ? ctx.first : '', last = d.test(String(ctx.last)) ? ctx.last : '';
+  return [
+    'You are the assistant inside Life Tracker, a personal habit and health tracker. You help one person understand their own data.',
+    'Today is ' + today + '. The open tracker covers ' + first + ' to ' + last + '. All dates are YYYY-MM-DD. Weeks run Monday to Sunday.',
+    'Rules:',
+    '- Get every number from the tools. Never invent, guess or estimate numbers. If data is missing, say so plainly.',
+    '- Be concise and friendly. Short paragraphs or bullets, plain language, no tables.',
+    '- You are not a doctor. Describe patterns and associations, not diagnoses, and suggest a professional for medical worries.',
+    '- Available data: Daily Dos (dos), Habits (habits), sleep, weight, water, work location (work: office/home/leave/holiday) and spending (spending). Period tracking is not available to you.',
+    'Reports:',
+    '- When the user asks for a report, do NOT build it straight away unless they already gave BOTH a period (a week, a month, a year or exact dates) AND what to include.',
+    '- Otherwise ask one short question offering: the period (this week, last week, this month, last month, the whole year, or exact dates) and the sections (Daily Dos, Habits, Sleep, Water, Weight, Work location, Spending; all by default).',
+    '- Then resolve the period to exact dates, call get_report_data once, write the narrative, and call publish_report once.',
+    '- For each section write 2 to 5 short sentences or bullets using only numbers from get_report_data, plus one practical suggestion where the data supports it.',
+    '- After publish_report succeeds, reply with one or two sentences and do not repeat the report.'
+  ].join('\n');
+}
+
+/** req: { messages, tools, context:{today,first,last} } -> { message } */
+function chat_(auth, req) {
+  if (req.asUid && String(req.asUid) !== auth.uid) throw new Error('The assistant is only available on your own tracker.');
+  var key = prop_('GROQ_API_KEY');
+  var messages = chatClean_(req.messages), tools = chatTools_(req.tools);
+  chatUsageBump_(auth.uid);
+  var model = PropertiesService.getScriptProperties().getProperty('GROQ_MODEL') || GROQ_DEFAULT_MODEL;
+  var body = { model: model, messages: [{ role: 'system', content: chatSystem_(req.context) }].concat(messages), temperature: 0.3, max_tokens: 2500 };
+  if (tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
+  var res = UrlFetchApp.fetch(GROQ_URL, {
+    method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + key },
+    payload: JSON.stringify(body), muteHttpExceptions: true
+  });
+  var code = res.getResponseCode();
+  if (code === 401 || code === 403) throw new Error('The assistant is not set up correctly (check the API key).');
+  if (code === 429) throw new Error('The assistant is busy. Please try again in a moment.');
+  if (code !== 200) throw new Error('The assistant could not answer (' + code + ').');
+  var j = JSON.parse(res.getContentText() || '{}');
+  var m = j.choices && j.choices[0] && j.choices[0].message;
+  if (!m) throw new Error('The assistant returned nothing. Please try again.');
+  var out = { role: 'assistant', content: m.content || '' };
+  if (m.tool_calls && m.tool_calls.length) out.tool_calls = m.tool_calls;
+  return { message: out };
 }
 
 // ---------- upload: xlsx -> Google Sheet in MASTER / UserName ----------

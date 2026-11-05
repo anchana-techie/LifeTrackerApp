@@ -338,6 +338,7 @@ function renderTab() {
   else if (S.tab === 'files') renderFiles();
   else if (S.tab === 'tasks') renderTasks();
   else if (S.tab === 'timegen') renderTimegen();
+  else if (S.tab === 'assistant') renderAssistant();
   else if (S.tab === 'admin') renderAdmin();
 }
 
@@ -2843,6 +2844,343 @@ function buildPlan() {
         h('span', { class: 'tg-time' }, clockText(w.t)), h('span', { class: 'tg-name' }, icon('glass-full'), `${w.ml} ml`), h('span', { class: 'pill teal' }, `${w.sum} ml total`))))]
       : h('p', { class: 'sub' }, 'Set your water goal and tumbler size in Settings to get a water schedule.'));
   return [tasksCard, waterCard];
+}
+
+/* =========================================================
+ * ASSISTANT — chat with the tracker data (Groq) and build reports
+ * The agent loop and the data tools run here; Code.gs only proxies to Groq.
+ * Tools return aggregates and short series, never free-text notes.
+ * ======================================================= */
+const AI_METRICS = ['dos', 'habits', 'sleep', 'weight', 'water', 'work', 'spending'];
+const AI_NAME = { dos: 'Daily Dos', habits: 'Habits', sleep: 'Sleep', weight: 'Weight', water: 'Water', work: 'Work location', spending: 'Spending' };
+S.chat = { msgs: [], ui: [], reports: [], busy: false, paint: null };
+
+const r1 = x => x === null || x === undefined || isNaN(x) ? null : Math.round(x * 10) / 10;
+const pc = x => x === null || x === undefined || isNaN(x) ? null : Math.round(x * 100);
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** validated [from, to] inside the tracked, already-elapsed days */
+function aiWin(a) {
+  const hi = todayKey() < S.idx.last ? todayKey() : S.idx.last;
+  let from = DATE_RE.test(String(a?.from)) ? a.from : S.idx.first, to = DATE_RE.test(String(a?.to)) ? a.to : hi;
+  if (from < S.idx.first) from = S.idx.first;
+  if (to > hi) to = hi;
+  if (from > to) throw new Error(`No tracked days in that range. Tracked days run ${S.idx.first} to ${hi}.`);
+  return [from, to];
+}
+
+function summaryOf(metric, win) {
+  const [a, b] = win;
+  if (metric === 'dos' || metric === 'habits') {
+    const g = analyzeGrid(metric, win);
+    if (!g) return { available: false };
+    const items = g.items.filter(i => i.rate !== null).sort((x, y) => y.rate - x.rate);
+    const pick = i => ({ name: i.name, done_pct: pc(i.rate), longest_streak_days: i.longest });
+    return { days_in_range: g.days.length, days_logged: g.logged.length, avg_completion_pct: pc(g.avg), best_items: items.slice(0, 5).map(pick), weakest_items: items.slice(-5).reverse().map(pick) };
+  }
+  if (metric === 'sleep') {
+    const A = analyzeSleep(win);
+    if (!A.n) return { nights: 0 };
+    return { nights: A.n, avg_hours: r1(A.avg / 60), shortest_hours: r1(A.shortest.dur / 60), longest_hours: r1(A.longest.dur / 60), pct_nights_7_to_9h: pc(A.inRange),
+      usual_bedtime: clockText(A.avgBed), usual_wake: clockText(A.avgWake), sleep_debt_hours_vs_8h: r1(A.debt / 60) };
+  }
+  if (metric === 'weight') {
+    const W = analyzeWeight(win);
+    if (!W || !W.n) return { readings: 0 };
+    return { readings: W.n, first: { date: W.first[0], kg: W.first[1] }, latest: { date: W.latest[0], kg: W.latest[1] }, change_kg: r1(W.latest[1] - W.first[1]),
+      min_kg: W.minP[1], max_kg: W.maxP[1], avg_kg: r1(W.avg), trend_kg_per_week: W.slope === null ? null : r1(W.slope * 7) };
+  }
+  if (metric === 'water') {
+    const goal = S.data.profile?.waterGoal || null;
+    const days = Object.entries(S.data.water?.days || {}).filter(([d]) => d >= a && d <= b);
+    if (!days.length) return { days_logged: 0 };
+    const tot = days.map(([, v]) => v.total);
+    return { days_logged: days.length, avg_ml_per_day: Math.round(mean(tot)), goal_ml: goal, days_goal_met: goal ? tot.filter(t => t >= goal).length : null };
+  }
+  if (metric === 'work') {
+    const A = analyzeWork(win);
+    const side = c => ({ days: c.n, avg_list_completion_pct: pc(c.score), avg_sleep_hours: c.sleep === null ? null : r1(c.sleep / 60) });
+    return { office_days: A.by.WFO.length, home_days: A.by.WFH.length, leave_days: A.by.Leave.length, holiday_days: A.by.Holiday.length,
+      office_pct_of_working_days: pc(A.office), unlogged_weekdays: A.missing.length, office: side(A.cmpO), home: side(A.cmpH) };
+  }
+  if (metric === 'spending') {
+    const SP = analyzeSpending(), yms = new Set(rangeDays(a, b).map(monthOf));
+    const months = SP.months.filter(m => yms.has(monthKey(m.m)));
+    return { months: months.map(m => ({ month: m.m, planned_inr: m.planned, bought_inr: m.boughtVal, items_bought: m.boughtCount, budget_inr: m.budget })),
+      overdue_restock: SP.restock.filter(r => r.status === 'overdue').slice(0, 5).map(r => r.name) };
+  }
+  throw new Error('Unknown metric.');
+}
+
+/** daily [date, value] points for a metric */
+function seriesPoints(metric, win) {
+  const [a, b] = win;
+  if (metric === 'sleep') return (analyzeSleep(win).nights || []).map(x => [x.date, r1(x.dur / 60)]);
+  if (metric === 'weight') return (analyzeWeight(win)?.pts || []).map(p => [p[0], p[1]]);
+  if (metric === 'water') return Object.entries(S.data.water?.days || {}).filter(([d]) => d >= a && d <= b).sort(([x], [y]) => x < y ? -1 : 1).map(([d, v]) => [d, v.total]);
+  if (metric === 'dos' || metric === 'habits') { const g = analyzeGrid(metric, win); return g ? g.logged.map((d, i) => [d, pc(g.score[i])]) : []; }
+  return [];
+}
+/** long series are averaged per week so the model and the charts stay small */
+function bucket(pts) {
+  if (pts.length <= 40) return pts;
+  const m = new Map();
+  pts.forEach(([d, v]) => { const k = mondayOf(d); (m.get(k) || m.set(k, []).get(k)).push(v); });
+  return [...m].map(([k, vs]) => [k, r1(mean(vs))]);
+}
+
+function runTool(name, a) {
+  a = a || {};
+  if (name === 'list_tasks') {
+    return ['dos', 'habits'].flatMap(k => (S.idx[k]?.items || []).map(n => { const m = taskMeta(n); return { name: n, list: k, starts: m?.start || null, minutes: m?.duration || null, priority: m?.priority || null }; })).slice(0, 80);
+  }
+  if (name === 'get_summary') {
+    if (!AI_METRICS.includes(a.metric)) throw new Error('metric must be one of ' + AI_METRICS.join(', '));
+    const win = aiWin(a);
+    return { metric: a.metric, from: win[0], to: win[1], ...summaryOf(a.metric, win) };
+  }
+  if (name === 'get_series') {
+    if (!AI_METRICS.includes(a.metric)) throw new Error('metric must be one of ' + AI_METRICS.join(', '));
+    const win = aiWin(a);
+    if (a.metric === 'work') {
+      const A = analyzeWork(win);
+      return { metric: 'work', from: win[0], to: win[1], months: A.months.map((m, i) => ({ month: m, ...A.perMonth[i] })) };
+    }
+    if (a.metric === 'spending') return { metric: 'spending', ...summaryOf('spending', win) };
+    const raw = seriesPoints(a.metric, win), pts = bucket(raw);
+    return { metric: a.metric, from: win[0], to: win[1], averaged_per_week: pts.length !== raw.length, points: pts.map(([date, value]) => ({ date, value })) };
+  }
+  if (name === 'get_report_data') {
+    const win = aiWin(a), ids = (Array.isArray(a.sections) && a.sections.length ? a.sections : AI_METRICS).filter(x => AI_METRICS.includes(x));
+    return { from: win[0], to: win[1], sections: Object.fromEntries(ids.map(id => [id, summaryOf(id, win)])) };
+  }
+  if (name === 'publish_report') {
+    const rep = buildReport(a);
+    S.chat.reports.push(rep);
+    S.chat.ui.push({ role: 'report', report: rep });
+    return { ok: true, message: 'The report is now shown to the user with download buttons.' };
+  }
+  throw new Error('Unknown tool ' + name);
+}
+
+const AI_TOOLS = (() => {
+  const metric = { type: 'string', enum: AI_METRICS };
+  const range = { from: { type: 'string', description: 'YYYY-MM-DD' }, to: { type: 'string', description: 'YYYY-MM-DD' } };
+  const fn = (name, description, properties, required = []) => ({ type: 'function', function: { name, description, parameters: { type: 'object', properties, required } } });
+  return [
+    fn('get_summary', 'Aggregated statistics for one metric over a date range.', { metric, ...range }, ['metric', 'from', 'to']),
+    fn('get_series', 'Day-by-day (or weekly average) values for one metric over a date range.', { metric, ...range }, ['metric', 'from', 'to']),
+    fn('list_tasks', 'The Daily Dos and Habits the user tracks, with start date, minutes and priority.', {}),
+    fn('get_report_data', 'All statistics needed to write a report for a date range and chosen sections.', { ...range, sections: { type: 'array', items: metric } }, ['from', 'to', 'sections']),
+    fn('publish_report', 'Show the finished report to the user. Call once, after get_report_data. Charts and figures are added automatically from the real data; you supply only the headings and narrative.',
+      { title: { type: 'string' }, subtitle: { type: 'string' }, ...range,
+        sections: { type: 'array', items: { type: 'object', properties: { id: metric, heading: { type: 'string' }, markdown: { type: 'string', description: 'Short narrative, bullets allowed with "- ", **bold** allowed.' } }, required: ['id', 'heading', 'markdown'] } } },
+      ['title', 'from', 'to', 'sections'])
+  ];
+})();
+
+/* ---------- report model, charts and exports ---------- */
+const CH = { green: '#1B9E77', blue: '#3B8FD9', orange: '#E08A1E', grey: '#8A9A94', pink: '#D9548F' };
+
+function chartSpec(metric, win) {
+  const one = (type, label, color) => { const b = bucket(seriesPoints(metric, win)); return b.length >= 2 ? { type, labels: b.map(p => fmt(p[0])), datasets: [{ label, data: b.map(p => p[1]), color }] } : null; };
+  if (metric === 'sleep') return one('bar', 'Hours slept', CH.blue);
+  if (metric === 'weight') return one('line', 'Weight (kg)', CH.green);
+  if (metric === 'water') return one('bar', 'Water (ml)', CH.blue);
+  if (metric === 'dos') return one('line', 'Daily Dos done (%)', CH.green);
+  if (metric === 'habits') return one('line', 'Habits done (%)', CH.green);
+  if (metric === 'work') {
+    const A = analyzeWork(win);
+    if (!A.months.length || !Object.values(A.by).some(x => x.length)) return null;
+    return { type: 'bar', stacked: true, labels: A.months.map(monthLabel), datasets: [['WFO', 'Office', CH.green], ['WFH', 'Home', CH.blue], ['Leave', 'Leave', CH.orange], ['Holiday', 'Holiday', CH.grey]].map(([k, l, c]) => ({ label: l, data: A.perMonth.map(m => m[k]), color: c })) };
+  }
+  if (metric === 'spending') {
+    const months = summaryOf('spending', win).months.filter(m => m.planned_inr || m.bought_inr);
+    return months.length ? { type: 'bar', labels: months.map(m => m.month.slice(0, 3)), datasets: [{ label: 'Planned (₹)', data: months.map(m => m.planned_inr), color: CH.grey }, { label: 'Bought (₹)', data: months.map(m => m.bought_inr), color: CH.green }] } : null;
+  }
+  return null;
+}
+
+/** renders a chart off-screen on a white-friendly palette and returns a PNG data URL */
+function chartImage(spec) {
+  if (!spec || !window.Chart) return '';
+  const c = document.createElement('canvas');
+  c.width = 720; c.height = 320;
+  const ch = new Chart(c, {
+    type: spec.type,
+    data: { labels: spec.labels, datasets: spec.datasets.map(d => ({ label: d.label, data: d.data, backgroundColor: d.color, borderColor: d.color, borderWidth: spec.type === 'line' ? 2 : 0, pointRadius: 2, tension: .25, fill: false, borderRadius: spec.type === 'bar' ? 3 : 0 })) },
+    options: { responsive: false, animation: false, devicePixelRatio: 2, plugins: { legend: { display: spec.datasets.length > 1, labels: { color: '#333' } } },
+      scales: { x: { stacked: !!spec.stacked, ticks: { color: '#444', maxTicksLimit: 10 }, grid: { display: false } }, y: { stacked: !!spec.stacked, beginAtZero: spec.type === 'bar', ticks: { color: '#444' }, grid: { color: '#e5e5e5' } } } }
+  });
+  const url = c.toDataURL('image/png');
+  ch.destroy();
+  return url;
+}
+
+function tilesFor(metric, s) {
+  const v = (x, suf = '') => x === null || x === undefined ? '—' : x + suf;
+  if (metric === 'dos' || metric === 'habits') return s.days_logged ? [['Average done', v(s.avg_completion_pct, '%')], ['Days logged', s.days_logged], ['Best', s.best_items?.[0]?.name || '—']] : [];
+  if (metric === 'sleep') return s.nights ? [['Average', v(s.avg_hours, ' h')], ['Nights', s.nights], ['Usual bedtime', s.usual_bedtime], ['Usual wake-up', s.usual_wake], ['In 7–9 h', v(s.pct_nights_7_to_9h, '%')]] : [];
+  if (metric === 'weight') return s.readings ? [['Latest', v(s.latest.kg, ' kg')], ['Change', v(s.change_kg, ' kg')], ['Average', v(s.avg_kg, ' kg')]] : [];
+  if (metric === 'water') return s.days_logged ? [['Average', v(s.avg_ml_per_day, ' ml')], ['Goal met', s.goal_ml ? `${s.days_goal_met} of ${s.days_logged} days` : '—'], ['Daily goal', v(s.goal_ml, ' ml')]] : [];
+  if (metric === 'work') return [['Office days', s.office_days], ['Home days', s.home_days], ['Leave', s.leave_days], ['In office', v(s.office_pct_of_working_days, '%')]];
+  if (metric === 'spending') { const sum = k => s.months.reduce((t, m) => t + (m[k] || 0), 0); return s.months.length ? [['Planned', rupee(sum('planned_inr'))], ['Bought', rupee(sum('bought_inr'))], ['Budget', sum('budget_inr') ? rupee(sum('budget_inr')) : '—']] : []; }
+  return [];
+}
+
+function buildReport(a) {
+  const win = aiWin(a);
+  const secs = (Array.isArray(a.sections) ? a.sections : []).filter(x => x && AI_METRICS.includes(x.id)).slice(0, 7);
+  if (!secs.length) throw new Error('No valid sections.');
+  const sections = secs.map(x => {
+    const sum = summaryOf(x.id, win), spec = chartSpec(x.id, win);
+    return { id: x.id, heading: String(x.heading || AI_NAME[x.id]).slice(0, 80), tiles: tilesFor(x.id, sum), spec, img: chartImage(spec), md: String(x.markdown || '').slice(0, 3000) };
+  });
+  return { title: String(a.title || 'Life Tracker report').slice(0, 100), subtitle: String(a.subtitle || '').slice(0, 160), from: win[0], to: win[1], created: todayKey(), sections };
+}
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/** tiny, safe markdown: paragraphs, "- " bullets, ### headings, **bold**. Everything is escaped first. */
+function mdToHtml(md) {
+  const inline = t => esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  const out = []; let list = false;
+  for (const raw of String(md || '').split('\n')) {
+    const line = raw.trim(), li = line.match(/^[-*•]\s+(.*)/);
+    if (li) { if (!list) { out.push('<ul>'); list = true; } out.push('<li>' + inline(li[1]) + '</li>'); continue; }
+    if (list) { out.push('</ul>'); list = false; }
+    if (!line) continue;
+    const hd = line.match(/^#{1,4}\s+(.*)/);
+    out.push(hd ? '<h4>' + inline(hd[1]) + '</h4>' : '<p>' + inline(line) + '</p>');
+  }
+  if (list) out.push('</ul>');
+  return out.join('');
+}
+
+const REPORT_CSS = `.rep{background:#fff;color:#1d2b26;font:15px/1.55 -apple-system,'Segoe UI',Roboto,sans-serif;padding:28px;border-radius:14px;max-width:820px;margin:0 auto;text-align:left}
+.rep h1{font-size:1.6rem;margin:0 0 4px}.rep .rep-sub{color:#5b6b65;margin:0 0 18px}
+.rep h2{font-size:1.15rem;margin:26px 0 10px;padding-bottom:6px;border-bottom:2px solid #1B9E77;color:#1d2b26}
+.rep-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:10px 0}
+.rep-tiles div{background:#f1f6f4;border-radius:10px;padding:10px 12px}
+.rep-tiles span{display:block;font-size:.74rem;color:#5b6b65}.rep-tiles b{font-size:1.1rem}
+.rep img{width:100%;height:auto;margin:8px 0;border:1px solid #e3ebe8;border-radius:10px}
+.rep p,.rep li{margin:6px 0}.rep ul{padding-left:20px;margin:6px 0}.rep h4{margin:10px 0 2px}
+.rep-foot{margin-top:26px;color:#8a9a94;font-size:.8rem}
+@media print{.rep{padding:0;border-radius:0}.rep section{break-inside:avoid}}`;
+
+function reportRange(r) { return `${fmt(r.from, { day: 'numeric', month: 'short', year: 'numeric' })} to ${fmt(r.to, { day: 'numeric', month: 'short', year: 'numeric' })}`; }
+function reportHTML(r) {
+  return `<article class="rep"><header><h1>${esc(r.title)}</h1><p class="rep-sub">${esc(r.subtitle ? r.subtitle + ' · ' : '')}${esc(reportRange(r))}</p></header>` +
+    r.sections.map(s => `<section><h2>${esc(s.heading)}</h2>` +
+      (s.tiles.length ? `<div class="rep-tiles">${s.tiles.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div>` : '') +
+      (s.img ? `<img src="${s.img}" alt="${esc(s.heading)} chart">` : '') + mdToHtml(s.md) + '</section>').join('') +
+    `<p class="rep-foot">Made with Life Tracker on ${esc(fmt(r.created, { day: 'numeric', month: 'long', year: 'numeric' }))}. Based on what you logged; patterns, not medical advice.</p></article>`;
+}
+function reportMarkdown(r) {
+  const lines = [`# ${r.title}`, '', `${r.subtitle ? r.subtitle + ' · ' : ''}${reportRange(r)}`, ''];
+  r.sections.forEach(s => {
+    lines.push(`## ${s.heading}`, '');
+    s.tiles.forEach(([k, v]) => lines.push(`- **${k}:** ${v}`));
+    if (s.tiles.length) lines.push('');
+    if (s.spec) {
+      lines.push(`| | ${s.spec.datasets.map(d => d.label).join(' | ')} |`, `|---|${s.spec.datasets.map(() => '---').join('|')}|`);
+      s.spec.labels.forEach((l, i) => lines.push(`| ${l} | ${s.spec.datasets.map(d => d.data[i] ?? '').join(' | ')} |`));
+      lines.push('');
+    }
+    lines.push(s.md.trim(), '');
+  });
+  lines.push('---', `Made with Life Tracker on ${r.created}. Patterns, not medical advice.`);
+  return lines.join('\n');
+}
+function downloadFile(name, mime, text) {
+  const a = h('a', { href: URL.createObjectURL(new Blob([text], { type: mime })), download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+const reportFile = (r, ext) => `life-tracker-report-${r.from}_to_${r.to}.${ext}`;
+function downloadReportHtml(r) {
+  downloadFile(reportFile(r, 'html'), 'text/html', `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(r.title)}</title><style>body{margin:0;padding:20px;background:#eef3f1}${REPORT_CSS}</style></head><body>${reportHTML(r)}</body></html>`);
+}
+function printReport(r) {
+  const area = $('#printArea');
+  area.innerHTML = `<style>${REPORT_CSS}</style>` + reportHTML(r);
+  document.body.classList.add('printing-report');
+  const done = () => { document.body.classList.remove('printing-report'); area.innerHTML = ''; window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  window.print();
+}
+
+/* ---------- agent loop ---------- */
+const trimMsgs = msgs => { let m = msgs.slice(-30); while (m.length && m[0].role !== 'user') m.shift(); return m; };
+
+async function agentLoop() {
+  const ctx = { today: todayKey(), first: S.idx.first, last: S.idx.last };
+  for (let round = 0; round < 8; round++) {
+    const { message } = await api('chat', { messages: trimMsgs(S.chat.msgs), tools: AI_TOOLS, context: ctx });
+    S.chat.msgs.push(message);
+    const calls = message.tool_calls || [];
+    if (message.content?.trim()) S.chat.ui.push({ role: 'bot', text: message.content.trim() });
+    S.chat.paint?.();
+    if (!calls.length) return;
+    for (const tc of calls) {
+      let out;
+      try { out = runTool(tc.function.name, JSON.parse(tc.function.arguments || '{}')); }
+      catch (err) { out = { error: err.message }; }
+      S.chat.msgs.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(out) });
+    }
+    S.chat.paint?.();
+  }
+  throw new Error('That took too many steps. Try a simpler question.');
+}
+
+async function sendChat(text) {
+  text = text.trim();
+  if (!text || S.chat.busy) return;
+  S.chat.ui.push({ role: 'user', text });
+  S.chat.msgs.push({ role: 'user', content: text });
+  S.chat.busy = true; S.chat.paint?.();
+  try { await agentLoop(); }
+  catch (err) { S.chat.ui.push({ role: 'err', text: err.message }); }
+  finally { S.chat.busy = false; S.chat.paint?.(); }
+}
+
+function renderAssistant() {
+  const body = $('#assistantBody');
+  S.chat.paint = null;
+  if (!S.data || S.groupMode) return fill(body, h('p', { class: 'sub' }, 'Open one person’s year to use the assistant.'));
+  if (S.demo) return fill(body, h('p', { class: 'sub' }, 'The assistant needs your real tracker and is not available in demo mode.'));
+  if (S.readOnly) return fill(body, h('p', { class: 'sub' }, 'The assistant is only available on your own tracker.'));
+
+  const log = h('div', { class: 'chat-log', 'aria-live': 'polite' });
+  const bubble = u => {
+    if (u.role === 'report') {
+      const r = u.report;
+      return h('div', { class: 'chat-report' },
+        h('div', { class: 'chat-rep-bar' }, h('b', null, 'Report ready'),
+          h('div', { class: 'row-actions', style: 'margin:0' },
+            h('button', { class: 'btn small ghost', onclick: () => printReport(r) }, icon('file-type-pdf'), 'PDF'),
+            h('button', { class: 'btn small ghost', onclick: () => downloadReportHtml(r) }, icon('file-code'), 'HTML'),
+            h('button', { class: 'btn small ghost', onclick: () => downloadFile(reportFile(r, 'md'), 'text/markdown', reportMarkdown(r)) }, icon('markdown'), 'Markdown'))),
+        (() => { const v = h('div', { class: 'chat-rep-view' }); v.innerHTML = reportHTML(r); return v; })());
+    }
+    return h('div', { class: 'chat-msg ' + u.role }, u.text);
+  };
+  const paint = () => {
+    const empty = !S.chat.ui.length;
+    fill(log, empty ? h('div', { class: 'chat-empty' }, h('p', null, 'Ask about your sleep, habits, water, weight, work days or spending, or ask for a weekly, monthly or yearly report.'),
+      h('div', { class: 'chips-row' }, ['How did I sleep this month?', 'Which habits am I missing most?', 'Compare my office and home days', 'I’d like a report'].map(q => h('button', { class: 'chip', onclick: () => sendChat(q) }, q)))) : null,
+      S.chat.ui.map(bubble), S.chat.busy ? h('div', { class: 'chat-msg bot typing' }, h('span'), h('span'), h('span')) : null);
+    input.disabled = S.chat.busy; sendBtn.disabled = S.chat.busy;
+    log.scrollTop = log.scrollHeight;
+  };
+  const input = h('input', { type: 'text', placeholder: 'Ask anything about your tracker…', maxlength: '500', 'aria-label': 'Message' });
+  const sendBtn = h('button', { class: 'btn primary' }, icon('send'), 'Send');
+  const form = h('form', { class: 'chat-form', onsubmit: e => { e.preventDefault(); const t = input.value; input.value = ''; sendChat(t); } }, input, sendBtn);
+  const newBtn = h('button', { class: 'btn small ghost', onclick: () => { if (S.chat.busy) return; S.chat.msgs = []; S.chat.ui = []; paint(); } }, icon('refresh'), 'New chat');
+  fill(body, h('div', { class: 'card chat-card' },
+    h('div', { class: 'chat-head' }, h('p', { class: 'sub' }, 'Your questions and summary statistics (no notes) are sent to Groq to write answers. Not medical advice.'), newBtn),
+    log, form));
+  S.chat.paint = paint;
+  paint();
 }
 
 function init() {

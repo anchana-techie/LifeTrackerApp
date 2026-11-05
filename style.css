@@ -603,3 +603,31 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
 .tbl th, .tbl td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
 .tbl thead th { color: var(--ink-2); font-size: .8rem; }
 .tbl tbody th { font-weight: 600; }
+
+/* ---------- assistant ---------- */
+.chat-card { display: flex; flex-direction: column; gap: 12px; }
+.chat-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.chat-head .sub { margin: 0; flex: 1 1 260px; }
+.chat-log { display: flex; flex-direction: column; gap: 10px; min-height: 280px; max-height: 68vh; overflow-y: auto; padding: 4px 2px; }
+.chat-msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; white-space: pre-wrap; line-height: 1.5; font-size: .93rem; }
+.chat-msg.user { align-self: flex-end; background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; }
+.chat-msg.bot { align-self: flex-start; background: var(--surface-2); border-bottom-left-radius: 4px; }
+.chat-msg.err { align-self: flex-start; background: color-mix(in srgb, var(--bad) 16%, var(--surface)); color: var(--bad); }
+.chat-msg.typing { display: flex; gap: 5px; align-items: center; }
+.chat-msg.typing span { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); animation: chatdot 1s infinite ease-in-out; }
+.chat-msg.typing span:nth-child(2) { animation-delay: .15s; }
+.chat-msg.typing span:nth-child(3) { animation-delay: .3s; }
+@keyframes chatdot { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+.chat-empty { margin: auto; text-align: center; color: var(--ink-2); max-width: 520px; }
+.chips-row { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+.chat-form { display: flex; gap: 8px; }
+.chat-form input { flex: 1; min-width: 0; }
+.chat-report { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+.chat-rep-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 14px; background: var(--surface-2); }
+.chat-rep-view { padding: 12px; background: #e9efec; max-height: 70vh; overflow: auto; }
+#printArea { display: none; }
+@media print {
+  body.printing-report > *:not(#printArea) { display: none !important; }
+  body.printing-report #printArea { display: block; }
+  body.printing-report { background: #fff; }
+}

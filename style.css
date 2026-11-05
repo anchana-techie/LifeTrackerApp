@@ -594,3 +594,12 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
   .tg-row { grid-template-columns: 96px minmax(0, 1fr); }
   .tg-row .pill { grid-column: 2; justify-self: start; }
 }
+
+/* ---------- work location ---------- */
+.work-card { display: flex; flex-direction: column; gap: 10px; }
+.work-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.work-card .sub { margin: 0; }
+.tbl { width: 100%; border-collapse: collapse; font-size: .92rem; margin-top: 8px; }
+.tbl th, .tbl td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); }
+.tbl thead th { color: var(--ink-2); font-size: .8rem; }
+.tbl tbody th { font-weight: 600; }

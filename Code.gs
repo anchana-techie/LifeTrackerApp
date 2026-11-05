@@ -66,6 +66,7 @@ function doPost(e) {
           case 'undoWater':    result = undoWater_(ss, req); break;
           case 'setSleep':     result = setSleep_(ss, req); break;
           case 'saveTask':     result = saveTask_(ss, req); break;
+          case 'setWork':      result = setWork_(ss, req); break;
           default: throw new Error('Unknown action: ' + req.action);
         }
         SpreadsheetApp.flush();
@@ -680,6 +681,56 @@ function setSleep_(ss, req) {
   return { saved: true };
 }
 
+// ---------- work location log: Date | Status | Note ----------
+
+var WORK_SHEET = 'Work Log';
+var WORK_STATUSES = ['WFO', 'WFH', 'Leave', 'Holiday'];
+
+function readWork_(ss, tz) {
+  var out = { days: {} };
+  var sh = ss.getSheetByName(WORK_SHEET);
+  if (!sh) return out;
+  var values = sh.getDataRange().getValues();
+  for (var r = 1; r < values.length; r++) {
+    var k = waterDateKey_(values[r][0], tz);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) continue;
+    var st = String(values[r][1] == null ? '' : values[r][1]).trim();
+    out.days[k] = { status: WORK_STATUSES.indexOf(st) >= 0 ? st : '', note: String(values[r][2] == null ? '' : values[r][2]) };
+  }
+  return out;
+}
+
+/** req: { date, status:'WFO'|'WFH'|'Leave'|'Holiday'|'' (clears it), note } */
+function setWork_(ss, req) {
+  var tz = ss.getSpreadsheetTimeZone();
+  var date = String(req.date || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('Invalid date.');
+  var status = String(req.status || '');
+  if (status !== '' && WORK_STATUSES.indexOf(status) < 0) throw new Error('Unknown work status.');
+  var note = String(req.note == null ? '' : req.note).trim().slice(0, 200);
+
+  var sh = ss.getSheetByName(WORK_SHEET);
+  if (!sh) {
+    sh = ss.insertSheet(WORK_SHEET);
+    sh.getRange(1, 1, 1, 3).setValues([['Date', 'Status', 'Note']])
+      .setFontWeight('bold').setFontColor('#ffffff').setBackground('#2F5496');
+    sh.getRange('A:C').setNumberFormat('@');
+    sh.setColumnWidth(1, 100); sh.setColumnWidth(2, 90); sh.setColumnWidth(3, 300);
+    sh.setFrozenRows(1);
+  }
+  var values = sh.getDataRange().getValues(), row = -1;
+  for (var r = 1; r < values.length; r++) {
+    if (waterDateKey_(values[r][0], tz) === date) { row = r + 1; break; }
+  }
+  if (row < 0) {
+    if (status === '' && note === '') return { saved: true };
+    row = Math.max(sh.getLastRow(), 1) + 1;
+    sh.getRange(row, 1).setNumberFormat('@').setValue(date);
+  }
+  sh.getRange(row, 2, 1, 2).setNumberFormat('@').setValues([[status, note]]);
+  return { saved: true };
+}
+
 // ---------- task settings: Task | List | Start date | Duration (min) | Priority | Period ----------
 
 var TASK_SHEET = 'Task Settings';
@@ -846,6 +897,7 @@ function readAll_(ss) {
   out.water = readWater_(ss, tz);
   out.sleep = readSleep_(ss, tz);
   out.tasks = readTasks_(ss, tz);
+  out.work = readWork_(ss, tz);
   out.oneTime = readOneTime_(ss, tz);
   return out;
 }

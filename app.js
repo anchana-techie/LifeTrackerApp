@@ -207,6 +207,9 @@ function applyLocal(action, p) {
   } else if (action === 'setSleep') {
     const day = (S.data.sleep.days[p.date] ||= { wake: '', sleep: '' });
     day[p.kind] = p.time;
+  } else if (action === 'setWork') {
+    const days = (S.data.work ||= { days: {} }).days;
+    if (!p.status && !p.note) delete days[p.date]; else days[p.date] = { status: p.status || '', note: p.note || '' };
   } else if (action === 'saveTask') {
     const tasks = (S.data.tasks ||= {}), name = String(p.name).replace(/\s+/g, ' ').trim();
     let kind = p.kind;
@@ -242,6 +245,7 @@ async function loadSheet({ quiet = false } = {}) {
     data.water ||= { days: {} };
     data.sleep ||= { days: {} };
     data.tasks ||= {};
+    data.work ||= { days: {} };
     if (hidesPeriod()) data.sheets.period = null;   // male accounts: no period tracking or analysis
     S.data = data;
     buildIndex();
@@ -582,6 +586,7 @@ function buildDay() {
   }
   wrap.append(buildWater(date));
   wrap.append(buildSleep(date));
+  wrap.append(buildWork(date));
 
   if (S.idx.products) wrap.append(buildProducts(date));
   return wrap;
@@ -751,6 +756,28 @@ function buildSleep(date) {
   }
   paint();
   return section('moon', 'Sleep', null, h('div', { class: 'card sleep-card' }, h('div', { class: 'sleep-actions' }, wake.box, bed.box), summary));
+}
+
+/* ---------- work location: WFO / WFH / Leave / Holiday ---------- */
+const WORK = [['WFO', 'building', 'Office'], ['WFH', 'home', 'Home'], ['Leave', 'beach', 'Leave'], ['Holiday', 'confetti', 'Holiday']];
+const WORK_LABEL = { WFO: 'Office', WFH: 'Home', Leave: 'Leave', Holiday: 'Holiday' };
+
+function buildWork(date) {
+  const inRange = date >= S.idx.first && date <= S.idx.last;
+  const get = () => S.data.work.days[date] || { status: '', note: '' };
+  const btns = h('div', { class: 'work-opts' });
+  const note = h('input', { type: 'text', maxlength: '120', placeholder: 'Note (optional)', 'aria-label': 'Work note', disabled: !inRange,
+    onchange: e => sendQuick('setWork', { date, status: get().status, note: e.target.value.trim() }) });
+  const hint = h('p', { class: 'sub' });
+  const paint = () => {
+    const cur = get().status;
+    fill(btns, WORK.map(([v, ico, label]) => h('button', { class: 'btn small ' + (cur === v ? 'primary' : 'ghost'), 'aria-pressed': String(cur === v), disabled: !inRange,
+      onclick: () => { sendQuick('setWork', { date, status: cur === v ? '' : v, note: get().note }); paint(); } }, icon(ico), label)));
+    note.value = get().note;
+    hint.textContent = cur ? '' : [0, 6].includes(dow(date)) ? 'Weekend. Nothing needs logging unless you worked.' : 'Where are you working today? Tap again to clear.';
+  };
+  paint();
+  return section('building', 'Work', () => WORK_LABEL[get().status] || '', h('div', { class: 'card work-card' }, btns, note, hint));
 }
 
 /** Updates the screen straight away, then tells the sheet; reloads from the sheet if that fails. */
@@ -1419,7 +1446,7 @@ function analyzeSpending() {
  * ======================================================= */
 const VIEWS = [
   ['overview', 'Overview'], ['dos', 'Daily Dos'], ['habits', 'Habits'],
-  ['period', 'Period cycle'], ['weight', 'Weight'], ['sleep', 'Sleep'], ['spending', 'Spending & restock']
+  ['period', 'Period cycle'], ['weight', 'Weight'], ['sleep', 'Sleep'], ['work', 'Work'], ['spending', 'Spending & restock']
 ];
 
 const views = () => VIEWS.filter(([v]) => !(v === 'period' && hidesPeriod()));
@@ -1462,7 +1489,7 @@ function renderAnalysis() {
   fill(body, );
   const win = analysisWindow();
   $('#analysisSub').textContent = windowLabel(win);
-  const fn = { overview: viewOverview, dos: (w, b) => viewGrid('dos', w, b), habits: (w, b) => viewGrid('habits', w, b), period: viewPeriod, weight: viewWeight, sleep: viewSleep, spending: viewSpending }[S.view];
+  const fn = { overview: viewOverview, dos: (w, b) => viewGrid('dos', w, b), habits: (w, b) => viewGrid('habits', w, b), period: viewPeriod, weight: viewWeight, sleep: viewSleep, work: viewWork, spending: viewSpending }[S.view];
   fn(win, body);
 }
 
@@ -1907,6 +1934,79 @@ function analyzeSleep([start, end]) {
 }
 
 const clockText = m => { m = Math.round(((m % 1440) + 1440) % 1440); return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; };
+
+/* ---------- work location ---------- */
+function analyzeWork([s, e]) {
+  const days = S.data.work?.days || {}, all = rangeDays(s, e), t = todayKey();
+  const by = { WFO: [], WFH: [], Leave: [], Holiday: [] };
+  all.forEach(d => { const st = days[d]?.status; if (by[st]) by[st].push(d); });
+  const worked = [...by.WFO, ...by.WFH].sort();
+  const missing = all.filter(d => d <= t && ![0, 6].includes(dow(d)) && !days[d]?.status);
+  let streak = 0, streakKind = null;
+  if (worked.length) {
+    streakKind = days[worked[worked.length - 1]].status;
+    for (let i = worked.length - 1; i >= 0 && days[worked[i]].status === streakKind; i--) streak++;
+  }
+  const score = d => {
+    if (!(S.idx.dos?.loggedDays.has(d) || S.idx.habits?.loggedDays.has(d))) return null;
+    let done = 0, total = 0;
+    for (const k of ['dos', 'habits']) { const ix = S.idx[k]; if (ix) ix.items.filter(n => taskStarted(n, d)).forEach(n => { total++; if (ix.sets[n].has(d)) done++; }); }
+    return total ? done / total : null;
+  };
+  const sleepDur = d => { const w = S.data.sleep?.days[d]?.wake, b = S.data.sleep?.days[addDays(d, -1)]?.sleep; return w && b ? (clockMins(w) - clockMins(b) + 1440) % 1440 : null; };
+  const cmp = st => ({ n: by[st].length, score: mean(by[st].map(score).filter(x => x !== null)), sleep: mean(by[st].map(sleepDur).filter(x => x !== null)) });
+  const months = [...new Set(all.map(monthOf))];
+  const perMonth = months.map(m => Object.fromEntries(Object.keys(by).map(k => [k, by[k].filter(d => monthOf(d) === m).length])));
+  const perDow = [1, 2, 3, 4, 5].map(i => ({ dow: i, WFO: by.WFO.filter(d => dow(d) === i).length, WFH: by.WFH.filter(d => dow(d) === i).length }));
+  return { by, worked, missing, streak, streakKind, office: worked.length ? by.WFO.length / worked.length : null, cmpO: cmp('WFO'), cmpH: cmp('WFH'), months, perMonth, perDow };
+}
+
+function viewWork(win, body) {
+  const A = analyzeWork(win);
+  const logged = A.by.WFO.length + A.by.WFH.length + A.by.Leave.length + A.by.Holiday.length;
+  if (!logged) { body.append(h('p', { class: 'empty' }, `No work days logged for ${windowLabel(win)}. Use the Work section on the Today screen.`)); return; }
+  body.append(h('div', { class: 'tiles' },
+    tile('Office days', A.by.WFO.length, A.office !== null ? `${pct(A.office)} of working days` : null),
+    tile('Home days', A.by.WFH.length, A.office !== null ? `${pct(1 - A.office)} of working days` : null),
+    tile('Leave', A.by.Leave.length), tile('Holidays', A.by.Holiday.length),
+    A.streak ? tile('Current run', `${A.streak} ${A.streakKind === 'WFO' ? 'office' : 'home'}`, 'working days in a row') : null,
+    tile('Not logged', A.missing.length, 'weekdays with no status', A.missing.length ? 'down' : 'up')));
+
+  const c1 = h('canvas'), c2 = h('canvas');
+  body.append(h('div', { class: 'grid-2' },
+    h('div', { class: 'card' }, h('h2', null, 'By month'), h('p', { class: 'sub' }, 'Days of each kind'), h('div', { class: 'chart-box' }, c1)),
+    h('div', { class: 'card' }, h('h2', null, 'By weekday'), h('p', { class: 'sub' }, 'Which weekdays you are in the office'), h('div', { class: 'chart-box' }, c2))));
+  const colors = { WFO: css('--accent'), WFH: css('--water'), Leave: css('--orange'), Holiday: css('--ink-3') };
+  chart(c1, {
+    type: 'bar',
+    data: { labels: A.months.map(monthLabel), datasets: Object.keys(colors).map(k => ({ label: WORK_LABEL[k], data: A.perMonth.map(m => m[k]), backgroundColor: colors[k], borderRadius: 4 })) },
+    options: { scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } }
+  });
+  chart(c2, {
+    type: 'bar',
+    data: { labels: A.perDow.map(x => DOW[x.dow]), datasets: [
+      { label: 'Office', data: A.perDow.map(x => x.WFO), backgroundColor: colors.WFO, borderRadius: 4 },
+      { label: 'Home', data: A.perDow.map(x => x.WFH), backgroundColor: colors.WFH, borderRadius: 4 }] },
+    options: { scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 } } } }
+  });
+
+  const O = A.cmpO, Hm = A.cmpH;
+  if (O.n && Hm.n && ((O.score !== null && Hm.score !== null) || (O.sleep !== null && Hm.sleep !== null))) {
+    const row = (label, f) => h('tr', null, h('th', null, label), h('td', null, f(O)), h('td', null, f(Hm)));
+    body.append(h('div', { class: 'card', style: 'margin-top:18px' }, h('h2', null, 'Office vs home'),
+      h('p', { class: 'sub' }, 'Averages over the days in this range. These are associations, not causes.'),
+      h('table', { class: 'tbl' }, h('thead', null, h('tr', null, h('th', null, ''), h('th', null, 'Office'), h('th', null, 'Home'))),
+        h('tbody', null, row('Days', x => x.n), row('Daily Dos and Habits done', x => pct(x.score)), row('Sleep the night before', x => x.sleep === null ? '—' : durText(Math.round(x.sleep)))))));
+  }
+
+  const ins = [];
+  if (A.office !== null) ins.push(['📅', `You were in the office ${plural(A.by.WFO.length, 'day')} and at home ${plural(A.by.WFH.length, 'day')} (${pct(A.office)} office).`]);
+  const best = [...A.perDow].sort((a, b) => b.WFO - a.WFO)[0];
+  if (best && best.WFO >= 2) ins.push(['ℹ️', `${fmt(addDays('2026-11-02', best.dow - 1), { weekday: 'long' })} is your most common office day (${best.WFO} times).`]);
+  if (O.score !== null && Hm.score !== null && Math.abs(O.score - Hm.score) >= .05) ins.push(O.score > Hm.score ? ['📈', `You tick ${Math.round((O.score - Hm.score) * 100)} points more of your list on office days.`] : ['📉', `You tick ${Math.round((Hm.score - O.score) * 100)} points more of your list on home days.`]);
+  if (A.missing.length) ins.push(['⚠️', `${plural(A.missing.length, 'weekday')} in this range ${A.missing.length === 1 ? 'has' : 'have'} no work status, most recently ${fmt(A.missing[A.missing.length - 1])}. Fill them in on the Today screen.`]);
+  body.append(h('div', { class: 'card', style: 'margin-top:18px' }, h('h2', null, 'What stands out'), insightList(ins)));
+}
 
 function viewSleep(win, body) {
   const A = analyzeSleep(win);

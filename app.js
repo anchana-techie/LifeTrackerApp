@@ -2678,10 +2678,14 @@ function fillNotifyPeople(members, invites) {
     ...invites.filter(i => !joined.has(i.email)).map(i => ({ email: i.email, name: i.email, invited: true }))];
   const all = new Set(NF.recipients.map(r => r.email));
   NF.selected = new Set([...NF.selected].filter(e => all.has(e)));
-  const sync = () => { $('#notifyAll').checked = NF.recipients.length > 0 && NF.selected.size === NF.recipients.length; };
+  const sync = () => {
+    $('#notifyAll').checked = NF.recipients.length > 0 && NF.selected.size === NF.recipients.length;
+    $('#notifyPicked').textContent = `${NF.selected.size} selected`;
+    $$('#notifyPeople .person').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
+  };
   fill($('#notifyPeople'), ...(NF.recipients.length ? NF.recipients.map(r => {
     const cb = h('input', { type: 'checkbox', checked: NF.selected.has(r.email), onchange: () => { cb.checked ? NF.selected.add(r.email) : NF.selected.delete(r.email); sync(); } });
-    return h('label', { class: 'check-row' }, cb, h('span', null, r.name, r.invited ? h('span', { class: 'muted' }, ' · invited, not registered') : null));
+    return h('label', { class: 'person' }, cb, h('span', { class: 'person-txt' }, h('b', null, r.name), r.invited ? h('span', { class: 'muted' }, 'Invited, not registered yet') : null));
   }) : [h('p', { class: 'sub' }, 'No one to send to yet.')]));
   sync();
 }

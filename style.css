@@ -653,7 +653,16 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
 .icon-pick button:hover { border-color: var(--accent); }
 .icon-pick button[aria-checked="true"] { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent); }
 .settings textarea { font: inherit; resize: vertical; min-height: 80px; }
-.notify-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2px 14px; margin-top: 4px; }
-.settings .notify-people label.check-row { margin-top: 6px; font-weight: 500; }
-.notify-people .muted { font-size: .78rem; }
+.notify-box { margin-top: 8px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.notify-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; background: var(--surface-2); border-bottom: 1px solid var(--line); }
+.notify-head .sub { margin: 0; }
+.settings .notify-head label.check-row { margin: 0; }
+.notify-box input[type="checkbox"] { flex: none; width: 18px; height: 18px; padding: 0; margin: 0; accent-color: var(--accent); }
+.notify-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; padding: 12px; }
+.settings .notify-people label.person { display: flex; flex-direction: row; align-items: center; gap: 10px; margin: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; font-weight: 500; }
+.person:hover { border-color: var(--accent); }
+.person.on { background: var(--accent-soft); border-color: var(--accent); }
+.person-txt { display: flex; flex-direction: column; min-width: 0; }
+.person-txt b { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
+.person-txt .muted { font-size: .76rem; }
 .notice-modal .notice-text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); font-size: 1.02rem; }

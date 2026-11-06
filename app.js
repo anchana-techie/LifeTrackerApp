@@ -324,6 +324,7 @@ function showBanner() {
 function switchTab(tab) {
   S.tab = tab;
   $$('.nav-btn').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  $('.nav-btn[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
   window.scrollTo(0, 0);
   $$('.tab-panel').forEach(p => { p.hidden = p.id !== 'tab-' + tab; });
   if (S.data || S.groupMode || ['upload', 'files', 'admin', 'settings'].includes(tab)) renderTab();

@@ -428,10 +428,13 @@ main { max-width: 1180px; margin: 0 auto; padding: 22px 32px 120px; }
     flex-direction: row; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); border-right: 0; border-top: 1px solid var(--line); gap: 0;
   }
   .nav .brand, .nav .nav-foot { display: none; }
-  .nav-items { flex-direction: row; flex: 1; justify-content: space-around; }
-  .nav-btn { flex-direction: column; gap: 3px; font-size: .7rem; padding: 6px 8px; flex: 1; align-items: center; }
+  /* nine tabs don't fit a phone: scroll sideways, keep every button the same size */
+  .nav-items { flex-direction: row; flex: 1; min-width: 0; gap: 2px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .nav-items::-webkit-scrollbar { display: none; }
+  .nav-btn { flex: 0 0 auto; width: 68px; flex-direction: column; justify-content: flex-start; gap: 3px; font-size: .68rem; line-height: 1.1; padding: 6px 2px; align-items: center; text-align: center; white-space: nowrap; }
+  .nav-btn .ti { display: grid; place-items: center; width: 52px; height: 28px; border-radius: 999px; font-size: 1.25rem; }
   .nav-btn[aria-selected="true"] { background: none; color: var(--accent-strong); }
-  .nav-btn[aria-selected="true"] .ti { background: var(--accent-soft); border-radius: 999px; padding: 4px 16px; }
+  .nav-btn[aria-selected="true"] .ti { background: var(--accent-soft); }
   .top { flex-direction: column; align-items: stretch; padding: 14px 16px 0; }
   .top-brand { display: flex; }
   .top-brand > div { flex: 1; }

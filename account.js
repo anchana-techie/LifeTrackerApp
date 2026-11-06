@@ -152,11 +152,12 @@ const Account = (() => {
 
     /* ----- admin ----- */
     /** Admin: send one message to each email. Throws if any write is refused. */
-    async sendMessage(emails, text, icon, by) {
+    async sendMessage(emails, text, icon, by, deliverAt) {
       try {
         const batch = db.batch();
         [...new Set(emails.map(lower))].forEach(email => batch.set(db.collection('messages').doc(), {
-          email, text, icon, by, createdAt: firebase.firestore.FieldValue.serverTimestamp() }));
+          email, text, icon, by, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          ...(deliverAt ? { deliverAt: firebase.firestore.Timestamp.fromDate(deliverAt) } : {}) }));
         await batch.commit();
       } catch (e) { fail(e); }
     },

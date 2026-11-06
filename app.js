@@ -2690,6 +2690,14 @@ function fillNotifyPeople(members, invites) {
   sync();
 }
 
+function setWhenHint() {
+  const d = $('#notifyDate').value, t = $('#notifyTime').value;
+  $('#notifyWhenHint').textContent = d && t ? 'Shown at that date and time (your local time), or at their next login after it.'
+    : d ? 'No time chosen, so it is shown at 9:00 AM on that date.'
+    : t ? 'No date chosen, so it is shown today at that time.'
+    : 'Leave both empty and each person sees it when they next log in (or straight away if online).';
+}
+
 async function doNotify(e) {
   e.preventDefault();
   const st = $('#notifyStatus'), btn = $('#notifyBtn'), text = $('#notifyText').value.trim();
@@ -2697,12 +2705,20 @@ async function doNotify(e) {
   st.className = 'sub';
   if (!text) return problem('Type a message.');
   if (!NF.selected.size) return problem('Choose at least one person.');
-  const n = NF.selected.size;
+  const n = NF.selected.size, dStr = $('#notifyDate').value, tStr = $('#notifyTime').value;
+  let when = null;   // no date and no time = show on login
+  if (dStr || tStr) {
+    const now = new Date(), [y, mo, d] = dStr ? dStr.split('-').map(Number) : [now.getFullYear(), now.getMonth() + 1, now.getDate()];
+    const [hh, mm] = tStr ? tStr.split(':').map(Number) : [9, 0];   // a date alone means 9:00 AM
+    when = new Date(y, mo - 1, d, hh, mm);
+    if (when <= now) return problem(dStr ? 'That date and time has already passed.' : 'That time has already passed today. Pick a date, or clear the schedule.');
+  }
   btn.disabled = true; st.textContent = 'Sending…';
   try {
-    await Account.sendMessage([...NF.selected], text, NF.icon, S.user.userName);
+    await Account.sendMessage([...NF.selected], text, NF.icon, S.user.userName, when);
+    $('#notifyDate').value = ''; $('#notifyTime').value = ''; setWhenHint();
     $('#notifyText').value = ''; $('#notifyCount').textContent = '0 / 300'; st.textContent = '';
-    toast(`Sent to ${n} ${n === 1 ? 'person' : 'people'}`);
+    toast(when ? `Scheduled for ${n} ${n === 1 ? 'person' : 'people'}: ${when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : `Sent to ${n} ${n === 1 ? 'person' : 'people'}`);
   } catch (err) { problem(err.message); }
   finally { btn.disabled = false; }
 }
@@ -2727,13 +2743,24 @@ function watchMessages() {
         h('div', { class: 'notice-actions' }, h('button', { class: 'btn primary', onclick: close }, 'Got it'))));
     document.body.append(overlay);
   };
-  S.msgUnsub = Account.watchMessages(S.user.email, list => {
-    list.filter(m => !shown.has(m.id)).forEach(m => { shown.add(m.id); queue.push(m); });
+  // a scheduled message stays unseen until its time; while the app is open a timer brings it up on time
+  let latest = [], timer = null;
+  const due = m => !m.deliverAt || m.deliverAt.toMillis() <= Date.now();
+  const process = () => {
+    clearTimeout(timer);
+    latest.filter(m => due(m) && !shown.has(m.id)).forEach(m => { shown.add(m.id); queue.push(m); });
+    const waits = latest.filter(m => !due(m)).map(m => m.deliverAt.toMillis() - Date.now());
+    if (waits.length) timer = setTimeout(process, Math.min(Math.max(Math.min(...waits), 1000), 2147483647));
+    S.msgTimer = timer;
     if (!open) next();
-  });
+  };
+  S.msgUnsub = Account.watchMessages(S.user.email, list => { latest = list; process(); });
   return firstDone;
 }
-function stopWatchingMessages() { if (S.msgUnsub) { S.msgUnsub(); S.msgUnsub = null; } }
+function stopWatchingMessages() {
+  if (S.msgUnsub) { S.msgUnsub(); S.msgUnsub = null; }
+  clearTimeout(S.msgTimer);
+}
 
 async function renderAdmin() {
   const memberBox = $('#memberList'), inviteBox = $('#inviteList');
@@ -3473,6 +3500,9 @@ function init() {
   $('#adminUploadForm').addEventListener('submit', doAdminUpload);
   buildNotifyIcons();
   $('#notifyForm').addEventListener('submit', doNotify);
+  $('#notifyDate').min = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  ['#notifyDate', '#notifyTime'].forEach(s => $(s).addEventListener('input', setWhenHint));
+  $('#notifyClearWhen').addEventListener('click', () => { $('#notifyDate').value = ''; $('#notifyTime').value = ''; setWhenHint(); });
   $('#notifyText').addEventListener('input', e => { $('#notifyCount').textContent = `${e.target.value.length} / 300`; });
   $('#notifyAll').addEventListener('change', e => {
     NF.selected = new Set(e.target.checked ? NF.recipients.map(r => r.email) : []);

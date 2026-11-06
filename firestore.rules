@@ -80,7 +80,8 @@ service cloud.firestore {
     match /messages/{id} {
       allow get, list: if signedIn() && resource.data.email == myEmail();
       allow create: if isAdmin()
-        && request.resource.data.keys().hasOnly(['email', 'text', 'icon', 'by', 'createdAt'])
+        && request.resource.data.keys().hasOnly(['email', 'text', 'icon', 'by', 'createdAt', 'deliverAt'])
+        && (!('deliverAt' in request.resource.data) || request.resource.data.deliverAt is timestamp)
         && request.resource.data.email is string && request.resource.data.email.size() <= 200
         && request.resource.data.text is string && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 500
         && request.resource.data.icon is string && request.resource.data.icon.size() <= 40

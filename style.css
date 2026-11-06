@@ -666,3 +666,7 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
 .person-txt b { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; }
 .person-txt .muted { font-size: .76rem; }
 .notice-modal .notice-text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); font-size: 1.02rem; }
+
+.notify-when { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.notify-when label { margin-top: 8px; }
+.notify-when .btn { margin-bottom: 2px; }

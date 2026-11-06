@@ -2751,7 +2751,7 @@ function renderTasks() {
 /* =========================================================
  * TIMEGENERATOR — suggested times for tasks and water
  * ======================================================= */
-const TG = { date: null, wake: '', sleep: '', skipDone: true };
+const TG = { date: null, wake: '', sleep: '', skipDone: true, wakeEdited: false, sleepEdited: false };
 
 /** median wake / bedtime over the last 14 logged days, with sensible fallbacks */
 function typicalSleep() {
@@ -2804,13 +2804,24 @@ function renderTimegen() {
   const body = $('#timegenBody');
   if (!S.data || S.groupMode) return fill(body, h('p', { class: 'sub' }, 'Open one person’s year to use TimeGenerator.'));
   if (!TG.date || TG.date < S.idx.first || TG.date > S.idx.last) TG.date = clampDate(todayKey());
-  if (!TG.wake || !TG.sleep) {
-    const ty = typicalSleep();
-    TG.wake = clockText(ty.wake); TG.sleep = clockText(ty.sleep);
-  }
+  // Defaults: what was logged for the planned day, else the recent typical time.
+  // Once the user edits a field by hand, their value is kept.
+  const applyDefaults = () => {
+    const ty = typicalSleep(), logged = S.data.sleep?.days?.[TG.date] || {};
+    if (!TG.wakeEdited) TG.wake = logged.wake || clockText(ty.wake);
+    if (!TG.sleepEdited) TG.sleep = logged.sleep || clockText(ty.sleep);
+  };
+  applyDefaults();
   const out = h('div');
   const dateIn = h('input', { type: 'date', min: S.idx.first, max: S.idx.last, value: TG.date });
   const wakeIn = h('input', { type: 'time', value: TG.wake }), sleepIn = h('input', { type: 'time', value: TG.sleep });
+  wakeIn.addEventListener('input', () => { TG.wakeEdited = true; });
+  sleepIn.addEventListener('input', () => { TG.sleepEdited = true; });
+  dateIn.addEventListener('change', () => {
+    if (!dateIn.value) return;
+    TG.date = dateIn.value; applyDefaults();
+    wakeIn.value = TG.wake; sleepIn.value = TG.sleep;
+  });
   const skip = h('input', { type: 'checkbox', checked: TG.skipDone });
   const go = () => {
     if (!dateIn.value || !wakeIn.value || !sleepIn.value) return toast('Fill in the day, wake-up and sleep times.', true);

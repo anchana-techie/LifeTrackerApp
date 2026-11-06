@@ -82,12 +82,12 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .icon-btn { width: 40px; height: 40px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); display: grid; place-items: center; cursor: pointer; font-size: 1.15rem; flex: none; }
 .icon-btn:disabled { opacity: .35; cursor: default; }
-input, select {
+input, select, textarea {
   font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line);
   border-radius: 12px; padding: 9px 12px; min-width: 0;
 }
-input:focus, select:focus, .btn:focus-visible, .tap:focus-visible, .icon-btn:focus-visible, .nav-btn:focus-visible, .wcell:focus-visible, .day-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-input::placeholder { color: var(--ink-3); }
+input:focus, select:focus, textarea:focus, .btn:focus-visible, .tap:focus-visible, .icon-btn:focus-visible, .nav-btn:focus-visible, .wcell:focus-visible, .day-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input::placeholder, textarea::placeholder { color: var(--ink-3); }
 
 /* ---------- app frame ---------- */
 .app { display: grid; grid-template-columns: var(--nav-w) minmax(0, 1fr); min-height: 100vh; }
@@ -645,3 +645,15 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
 
 .rep, .rep p, .rep li, .rep ul, .rep section, .rep header, .rep h1, .rep h2, .rep h4 { color: #1d2b26; }
 .rep .rep-sub, .rep .rep-foot, .rep-tiles span { color: #5b6b65; }
+
+/* ---------- admin notifications ---------- */
+.field-label { margin-top: 14px; font-size: .88rem; font-weight: 600; color: var(--ink-2); }
+.icon-pick { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.icon-pick button { width: 44px; height: 44px; display: grid; place-items: center; font-size: 1.35rem; color: var(--ink-2); background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.icon-pick button:hover { border-color: var(--accent); }
+.icon-pick button[aria-checked="true"] { background: var(--accent-soft); color: var(--accent-strong); border-color: var(--accent); }
+.settings textarea { font: inherit; resize: vertical; min-height: 80px; }
+.notify-people { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 2px 14px; margin-top: 4px; }
+.settings .notify-people label.check-row { margin-top: 6px; font-weight: 500; }
+.notify-people .muted { font-size: .78rem; }
+.notice-modal .notice-text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); font-size: 1.02rem; }

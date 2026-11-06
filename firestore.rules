@@ -73,5 +73,20 @@ service cloud.firestore {
       allow create, update: if false;
       allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
+
+    // messages = a notification the admin sends to people. Addressed by lower-cased email so it also
+    // reaches someone who was invited but has not registered yet. The admin creates them; the person
+    // it is addressed to reads it and deletes it once seen, so it shows once and is then gone.
+    match /messages/{id} {
+      allow get, list: if signedIn() && resource.data.email == myEmail();
+      allow create: if isAdmin()
+        && request.resource.data.keys().hasOnly(['email', 'text', 'icon', 'by', 'createdAt'])
+        && request.resource.data.email is string && request.resource.data.email.size() <= 200
+        && request.resource.data.text is string && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 500
+        && request.resource.data.icon is string && request.resource.data.icon.size() <= 40
+        && request.resource.data.by is string && request.resource.data.by.size() <= 60;
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.email == myEmail();
+    }
   }
 }

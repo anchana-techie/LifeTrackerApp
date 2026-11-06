@@ -137,7 +137,29 @@ const Account = (() => {
       try { await Promise.all(ids.map(id => db.doc(`notices/${id}`).delete())); } catch (e) { /* shown again next time */ }
     },
 
+    /** Live feed of admin messages addressed to this email. onData gets the current list each time it changes.
+     *  Returns an unsubscribe function. Never throws: a message is not worth blocking sign-in. */
+    watchMessages(email, onData) {
+      try {
+        return db.collection('messages').where('email', '==', lower(email)).onSnapshot(
+          snap => onData(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0))),
+          e => { console.warn('Could not read messages (are the Firestore rules published?)', e.code || e); onData([]); });
+      } catch (e) { onData([]); return () => {}; }
+    },
+    async deleteMessage(id) {
+      try { await db.doc('messages/' + id).delete(); } catch (e) { /* shown again next time */ }
+    },
+
     /* ----- admin ----- */
+    /** Admin: send one message to each email. Throws if any write is refused. */
+    async sendMessage(emails, text, icon, by) {
+      try {
+        const batch = db.batch();
+        [...new Set(emails.map(lower))].forEach(email => batch.set(db.collection('messages').doc(), {
+          email, text, icon, by, createdAt: firebase.firestore.FieldValue.serverTimestamp() }));
+        await batch.commit();
+      } catch (e) { fail(e); }
+    },
     async listMembers() {
       try {
         const snap = await db.collection('members').get();

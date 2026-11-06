@@ -2221,6 +2221,8 @@ function clearSheet() {
 /** Called by Account whenever the signed-in person changes. */
 async function onAuthChange(profile, msg) {
   if (!profile) {
+    stopWatchingMessages();
+    $$('.modal-overlay').forEach(o => o.remove());
     Object.assign(S, { user: null, members: [], memberYears: {}, groupMode: false, group: null, years: [], year: null, viewUid: null, demo: false, files: null, fileCache: {}, nextYear: null, pending: freshPending(), buyDraft: null, buyDirty: false });
     clearSheet();
     setLoader(false);
@@ -2249,7 +2251,10 @@ async function onAuthChange(profile, msg) {
   await refreshYears();
   if (S.year) { await loadSheet(); switchTab('log'); } else { clearSheet(); switchTab('upload'); }
   setLoader(false);
-  await showAdminUploadNotice();   // after the loader is gone, so the two never overlap
+  // admin messages come first; the upload notice follows once they are dismissed (so the pop ups never overlap).
+  // The wait is capped so a slow connection never holds the upload notice back.
+  await Promise.race([watchMessages(), new Promise(r => setTimeout(r, 5000))]);
+  await showAdminUploadNotice();
 }
 
 /** Tells a member when an admin uploaded a year for them, then deletes the notice so it shows only once. */
@@ -2653,6 +2658,79 @@ async function removeMember(member, years) {
   catch (err) { toast(err.message, true); }
 }
 
+/* =========================================================
+ * NOTIFICATIONS — admin sends a pop up message; each person sees it once, first thing on login
+ * ======================================================= */
+const NOTIFY_ICONS = ['bell', 'speakerphone', 'heart', 'star', 'gift', 'trophy', 'flame', 'confetti', 'calendar-event', 'alert-triangle', 'thumb-up', 'mood-smile', 'bulb', 'cake', 'rocket', 'message-circle'];
+const safeNotifyIcon = n => (NOTIFY_ICONS.includes(n) ? n : 'bell');
+const NF = { icon: 'bell', recipients: [], selected: new Set() };   // recipients: [{ email, name, invited }]
+
+function buildNotifyIcons() {
+  const box = $('#notifyIcons');
+  fill(box, ...NOTIFY_ICONS.map(n => h('button', { type: 'button', role: 'radio', 'aria-checked': String(n === NF.icon), 'aria-label': n.replace(/-/g, ' '), title: n.replace(/-/g, ' '),
+    onclick: () => { NF.icon = n; $$('#notifyIcons button').forEach(b => b.setAttribute('aria-checked', String(b === box.children[NOTIFY_ICONS.indexOf(n)]))); } }, icon(n))));
+}
+
+function fillNotifyPeople(members, invites) {
+  const joined = new Set(members.map(m => m.email));
+  NF.recipients = [
+    ...members.filter(m => m.role !== 'admin' && !m.deleted).map(m => ({ email: m.email, name: m.userName, invited: false })),
+    ...invites.filter(i => !joined.has(i.email)).map(i => ({ email: i.email, name: i.email, invited: true }))];
+  const all = new Set(NF.recipients.map(r => r.email));
+  NF.selected = new Set([...NF.selected].filter(e => all.has(e)));
+  const sync = () => { $('#notifyAll').checked = NF.recipients.length > 0 && NF.selected.size === NF.recipients.length; };
+  fill($('#notifyPeople'), ...(NF.recipients.length ? NF.recipients.map(r => {
+    const cb = h('input', { type: 'checkbox', checked: NF.selected.has(r.email), onchange: () => { cb.checked ? NF.selected.add(r.email) : NF.selected.delete(r.email); sync(); } });
+    return h('label', { class: 'check-row' }, cb, h('span', null, r.name, r.invited ? h('span', { class: 'muted' }, ' · invited, not registered') : null));
+  }) : [h('p', { class: 'sub' }, 'No one to send to yet.')]));
+  sync();
+}
+
+async function doNotify(e) {
+  e.preventDefault();
+  const st = $('#notifyStatus'), btn = $('#notifyBtn'), text = $('#notifyText').value.trim();
+  const problem = m => { st.textContent = m; st.className = 'sub err'; };
+  st.className = 'sub';
+  if (!text) return problem('Type a message.');
+  if (!NF.selected.size) return problem('Choose at least one person.');
+  const n = NF.selected.size;
+  btn.disabled = true; st.textContent = 'Sending…';
+  try {
+    await Account.sendMessage([...NF.selected], text, NF.icon, S.user.userName);
+    $('#notifyText').value = ''; $('#notifyCount').textContent = '0 / 300'; st.textContent = '';
+    toast(`Sent to ${n} ${n === 1 ? 'person' : 'people'}`);
+  } catch (err) { problem(err.message); }
+  finally { btn.disabled = false; }
+}
+
+/** Starts listening for admin messages; resolves once the first batch has been shown and dismissed.
+ *  Later messages pop up as they arrive. Each is deleted when the person taps Got it. */
+function watchMessages() {
+  stopWatchingMessages();
+  const shown = new Set(), queue = [];
+  let open = false, first = true, resolveFirst;
+  const firstDone = new Promise(r => { resolveFirst = r; });
+  const next = () => {
+    const m = queue.shift();
+    if (!m) { open = false; if (first) { first = false; resolveFirst(); } return; }
+    open = true;
+    const close = () => { overlay.remove(); Account.deleteMessage(m.id); next(); };
+    const overlay = h('div', { class: 'modal-overlay', role: 'dialog', 'aria-modal': 'true' },
+      h('div', { class: 'card notice-modal' },
+        h('div', { class: 'notice-ico' }, icon(safeNotifyIcon(m.icon))),
+        h('h2', null, `Message from ${m.by || 'admin'}`),
+        h('p', { class: 'notice-text' }, m.text),
+        h('div', { class: 'notice-actions' }, h('button', { class: 'btn primary', onclick: close }, 'Got it'))));
+    document.body.append(overlay);
+  };
+  S.msgUnsub = Account.watchMessages(S.user.email, list => {
+    list.filter(m => !shown.has(m.id)).forEach(m => { shown.add(m.id); queue.push(m); });
+    if (!open) next();
+  });
+  return firstDone;
+}
+function stopWatchingMessages() { if (S.msgUnsub) { S.msgUnsub(); S.msgUnsub = null; } }
+
 async function renderAdmin() {
   const memberBox = $('#memberList'), inviteBox = $('#inviteList');
   try {
@@ -2675,6 +2753,7 @@ async function renderAdmin() {
       m.deleted
         ? h('button', { class: 'btn small', onclick: () => removeMember(m, years[i]) }, icon('trash'), 'Remove')
         : null)));
+    fillNotifyPeople(members, invites);
     fill(inviteBox, ...invites.map(inv => {
       const joined = members.some(m => m.email === inv.email);
       return h('div', { class: 'row' }, h('span', null, inv.email), h('span', { class: 'muted' }, joined ? 'registered' : 'waiting'),
@@ -3388,6 +3467,13 @@ function init() {
   $$('#signOutBtn, #topSignOut').forEach(b => b.addEventListener('click', () => { if (confirmDiscard()) Account.signOut(); }));
   $('#uploadForm').addEventListener('submit', doUpload);
   $('#adminUploadForm').addEventListener('submit', doAdminUpload);
+  buildNotifyIcons();
+  $('#notifyForm').addEventListener('submit', doNotify);
+  $('#notifyText').addEventListener('input', e => { $('#notifyCount').textContent = `${e.target.value.length} / 300`; });
+  $('#notifyAll').addEventListener('change', e => {
+    NF.selected = new Set(e.target.checked ? NF.recipients.map(r => r.email) : []);
+    $$('#notifyPeople input').forEach(cb => { cb.checked = e.target.checked; });
+  });
   $('#inviteForm').addEventListener('submit', async e => {
     e.preventDefault();
     try { await Account.addInvite($('#inviteEmail').value); e.target.reset(); toast('Invited'); renderAdmin(); }

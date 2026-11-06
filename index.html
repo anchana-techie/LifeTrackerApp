@@ -15,15 +15,15 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons-outline.min.css">
-  <link rel="stylesheet" href="style.css?v=20261106">
+  <link rel="stylesheet" href="style.css?v=20261106b">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" defer></script>
   <script src="config.js" defer></script>
-  <script src="account.js?v=20261106" defer></script>
-  <script src="app.js?v=20261106" defer></script>
-  <script src="group.js?v=20261106" defer></script>
+  <script src="account.js?v=20261106b" defer></script>
+  <script src="app.js?v=20261106b" defer></script>
+  <script src="group.js?v=20261106b" defer></script>
 </head>
 <body>
 <!-- SIGN IN / REGISTER -->
@@ -265,6 +265,21 @@
           <div class="card settings">
             <h2>Members</h2>
             <div id="memberList" class="rows"><p class="sub">Loading…</p></div>
+          </div>
+          <div class="card settings wide">
+            <h2>Send a notification</h2>
+            <p class="sub">It appears as a pop up the next time each person opens the app, or straight away if they are online. They see it once.</p>
+            <form id="notifyForm">
+              <div class="field-label">Icon</div>
+              <div id="notifyIcons" class="icon-pick" role="radiogroup" aria-label="Notification icon"></div>
+              <label>Message <textarea id="notifyText" rows="3" maxlength="300" placeholder="Type your message" required></textarea></label>
+              <div class="sub" id="notifyCount">0 / 300</div>
+              <div class="field-label">Send to</div>
+              <label class="check-row"><input type="checkbox" id="notifyAll"> Select all</label>
+              <div id="notifyPeople" class="notify-people"></div>
+              <div class="row-actions"><button class="btn primary" id="notifyBtn" type="submit"><i class="ti ti-send" aria-hidden="true"></i> Send</button></div>
+            </form>
+            <p id="notifyStatus" class="sub"></p>
           </div>
         </div>
       </section>

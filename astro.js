@@ -204,36 +204,124 @@ const Astro = (() => {
       h('p', { class: 'sub astro-legend' }, 'La = lagna · ® = retrograde · ', h('span', { class: 'astro-now-key' }, icon('moon'), 'now'), ' = Moon today'));
   }
 
-  /* ---------- alerts ---------- */
-  /** Alerts for each person between from and to: [{ uid, name, segs }] */
-  function alerts(A, from, to) {
+  /* ---------- couple timeline ---------- */
+  const who = p => p.uid === S.user?.uid ? 'You' : p.name;
+  const hitText = x => `${who(x)}: ${x.why.map(C.label).join(', ')}`;
+
+  /** Every Moon stretch overlapping [from, to] and who it hits: [{ sign, start, end, hits: [{ uid, name, why }] }].
+   *  An empty hits list means the stretch is clear for both people. */
+  function timeline(A, from, to) {
     // start three days early so a stretch already running at `from` shows its real start time
-    const segs = C.moonSegments(A, new Date(from.getTime() - 3 * 864e5), to).filter(s => s.end > from);
-    return pair.members.map(uid => ({ uid, name: pair.names[uid] || 'Person', segs: C.hits(personChart(A, uid), segs) }));
+    // and run three days past `to` so the last stretch shows its real end time
+    const segs = C.moonSegments(A, new Date(from.getTime() - 3 * 864e5), new Date(to.getTime() + 3 * 864e5)).filter(s => s.end > from && s.start < to);
+    const people = pair.members.map(uid => ({ uid, name: pair.names[uid] || 'Person', ch: personChart(A, uid) }));
+    return segs.map(s => ({ ...s, hits: people.map(p => { const x = C.hits(p.ch, [s])[0]; return x ? { uid: p.uid, name: p.name, why: x.why } : null; }).filter(Boolean) }));
   }
+  const today = () => { const d0 = startOfDay(new Date()); return [d0, new Date(d0.getTime() + 864e5)]; };
 
-  function todayLines(A) {
-    const d0 = startOfDay(new Date()), d1 = new Date(d0.getTime() + 864e5);
-    return alerts(A, d0, d1).flatMap(p => p.segs.map(s => ({ name: p.name, uid: p.uid, text: s.why.map(C.label).join(' and '), when: whenText(s, d0, d1) })));
-  }
-
-  /** Banner at the top of Today. Quiet when the person is not in a pair or nothing is due. */
+  /** Banner at the top of Today: red when the Moon is in a 1st/7th/8th for either person today, green otherwise. */
   async function banner() {
     const box = document.getElementById('astroAlert');
     if (!box) return;
     if (!pair) { box.hidden = true; return; }
     try {
-      const A = await loadLib(), lines = todayLines(A);
-      if (!lines.length) { box.hidden = true; return; }
-      fill(box, h('div', { class: 'astro-banner', role: 'status' },
-        h('span', { class: 'astro-banner-ico' }, icon('moon-stars')),
+      const A = await loadLib(), [d0, d1] = today(), tl = timeline(A, d0, d1);
+      const bad = tl.some(s => s.hits.length);
+      fill(box, h('div', { class: 'astro-banner ' + (bad ? 'bad' : 'good'), role: 'status' },
+        h('span', { class: 'astro-banner-ico' }, icon(bad ? 'moon-stars' : 'circle-check')),
         h('div', null,
-          h('b', null, 'Moon watch today'),
-          h('ul', null, lines.map(l => h('li', null, h('b', null, l.uid === S.user?.uid ? 'You' : l.name), `: Moon in ${l.text}, ${l.when}`)))),
+          h('b', null, bad ? 'Moon watch today' : 'All clear today'),
+          bad
+            ? h('ul', null, tl.map(s => h('li', null, h('b', null, `${C.RASI[s.sign]}, ${whenText(s, d0, d1)}`), ': ',
+              s.hits.length ? s.hits.map(hitText).join(' · ') : 'clear for both of you')))
+            : h('p', null, `Moon in ${tl.map(s => C.RASI[s.sign]).join(', then ')} is good for both of you.`)),
         h('button', { class: 'btn small ghost', type: 'button', onclick: () => switchTab('astro') }, 'Charts')));
       box.hidden = false;
     } catch (err) { box.hidden = true; console.warn(err); }
   }
+
+  /* ---------- 8 am pop-up (shown the first time the app is open after 8 am, once a day) ---------- */
+  const ADVICE = {
+    clear: [
+      'The Moon is favourable for both of you today. A good day to plan things together or start something new.',
+      'All clear for you both. Good for outings, decisions and getting things done as a team.',
+      'A smooth Moon for both of you. Use the easy energy to tick off something you have been putting off.',
+      'Good vibes for both of you today. Make time for each other and be generous with plans.'
+    ],
+    self: [
+      'You may feel more sensitive today. Keep plans light and be easy on yourself.',
+      'A low-energy Moon for you. Rest well, skip heated topics and hold off on big decisions.',
+      'Your Moon is in a tricky spot. Keep the day simple and let small things slide.',
+      'Take it slow today. Avoid arguments and leave major choices for a clearer day.'
+    ],
+    partner: [
+      '{name} may feel more sensitive today. Be patient and keep plans light together.',
+      'Go gently with {name} today. Avoid arguments; small kindnesses go a long way.',
+      'A low-energy day for {name}. Give some space and skip heated topics.',
+      '{name}’s Moon is in a tricky spot. Offer support and save big decisions for later.'
+    ],
+    both: [
+      'A sensitive day for both of you. Keep plans simple, avoid arguments and postpone big decisions.',
+      'You may both feel a bit off today. Be extra patient with each other and get good rest.',
+      'The Moon is in a tough spot for you both. Slow down, skip heated topics and save big plans for a clearer day.'
+    ]
+  };
+  let popTimer = null;
+
+  function popupContent(A) {
+    const now = new Date(), [d0, d1] = today(), tl = timeline(A, now, d1);
+    const hit = new Map();
+    tl.forEach(s => s.hits.forEach(x => {
+      const p = hit.get(x.uid) || { ...x, chandra: false };
+      p.chandra ||= x.why.some(w => w.ref === 'rasi' && w.house === 8);
+      hit.set(x.uid, p);
+    }));
+    const day = Math.round(d0.getTime() / 864e5), pick = (arr, salt = 0) => arr[(day + salt) % arr.length];
+    const people = [...hit.values()], me = S.user?.uid;
+    const advice = !people.length ? pick(ADVICE.clear)
+      : people.length === 2 ? pick(ADVICE.both)
+      : people[0].uid === me ? pick(ADVICE.self) : pick(ADVICE.partner, 1).replace('{name}', people[0].name);
+    const chandra = people.filter(p => p.chandra);
+    const chandraLine = chandra.length
+      ? `Chandrashtamam for ${chandra.map(p => p.uid === me ? 'you' : p.name).join(' and ')}: if you can, avoid starting anything new, long travel or signing important papers.`
+      : '';
+    let next = null;
+    if (people.length) next = timeline(A, now, new Date(now.getTime() + 7 * 864e5)).find(s => !s.hits.length && s.start > now);
+    return { tl, d0, d1, bad: people.length > 0, advice, chandraLine, next };
+  }
+
+  async function showPopup() {
+    const A = await loadLib(), c = popupContent(A);
+    const close = () => overlay.remove();
+    const overlay = h('div', { class: 'modal-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Today’s Moon' },
+      h('div', { class: 'card notice-modal astro-pop' },
+        h('div', { class: 'notice-ico' + (c.bad ? ' warn' : ' good') }, icon(c.bad ? 'moon-stars' : 'sun')),
+        h('h2', null, c.bad ? 'Go gently today' : 'All clear today'),
+        h('ul', { class: 'astro-pop-list' }, c.tl.map(s => h('li', { class: s.hits.length ? 'bad' : 'good' },
+          h('b', null, `Moon in ${C.RASI[s.sign]}`), ` (${C.RASI_EN[s.sign]}) ${whenText(s, new Date(), c.d1)}`,
+          h('span', null, s.hits.length ? s.hits.map(hitText).join(' · ') : 'Clear for both of you')))),
+        h('p', { class: 'astro-pop-advice' }, c.advice),
+        c.chandraLine ? h('p', { class: 'astro-pop-chandra' }, c.chandraLine) : null,
+        c.next ? h('p', { class: 'sub' }, `Next clear stretch for both: ${dayFmt(c.next.start)}, ${timeFmt(c.next.start)}`) : null,
+        h('div', { class: 'notice-actions' },
+          h('button', { class: 'btn ghost', onclick: () => { close(); switchTab('astro'); } }, 'See charts'),
+          h('button', { class: 'btn primary', onclick: close }, 'Got it'))));
+    document.body.append(overlay);
+  }
+
+  /** Shows the pop-up once a day, the first time the app is open at or after 8 am. Waits for other pop-ups to close. */
+  function schedulePopup() {
+    clearTimeout(popTimer);
+    if (!pair || !S.user || S.user.role === 'admin') return;
+    const now = new Date(), eight = new Date(now); eight.setHours(8, 0, 0, 0);
+    if (now < eight) { popTimer = setTimeout(schedulePopup, eight - now + 1000); return; }
+    const key = 'astroPop.' + S.user.uid;
+    if (store.get(key, '') === todayKey()) return;
+    if (document.querySelector('.modal-overlay')) { popTimer = setTimeout(schedulePopup, 1500); return; }
+    store.set(key, todayKey());
+    showPopup().catch(err => console.warn(err));
+  }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { schedulePopup(); if (S.tab === 'log') banner(); } });
 
   /* ---------- member view ---------- */
   async function renderMember(body) {
@@ -243,7 +331,7 @@ const Astro = (() => {
     try { A = await loadLib(); } catch (err) { return fill(body, h('p', { class: 'sub err' }, err.message)); }
     const now = new Date(), nowSign = C.signOf(C.moonLon(A, now)), moon = C.moonLon(A, now);
     const segNow = C.moonSegments(A, now, new Date(now.getTime() + 3 * 864e5))[0];
-    const d0 = startOfDay(now), week = alerts(A, d0, new Date(d0.getTime() + 7 * 864e5));
+    const d0 = startOfDay(now), week = timeline(A, d0, new Date(d0.getTime() + 7 * 864e5));
 
     const moonCard = h('div', { class: 'card astro-today' },
       h('div', { class: 'card-head' }, h('h2', null, icon('moon'), ' Moon now')),
@@ -251,19 +339,20 @@ const Astro = (() => {
       h('p', { class: 'sub' }, `${C.NAK[Math.floor(moon / (360 / 27))]} nakshatra · moves to ${C.RASI[(nowSign + 1) % 12]} on ${dayFmt(segNow.end)}, ${timeFmt(segNow.end)}`));
 
     const watchCard = h('div', { class: 'card astro-watch' },
-      h('div', { class: 'card-head' }, h('h2', null, 'Moon watch · next 7 days')),
-      h('p', { class: 'sub' }, `Days when the Moon is in the 1st, 7th or 8th from a rasi or lagna.`),
-      week.map(p => h('div', { class: 'astro-person' },
-        h('h3', null, p.uid === S.user?.uid ? `You (${p.name})` : p.name),
-        p.segs.length ? h('ul', { class: 'astro-list' }, p.segs.map(s => {
-          const active = s.start <= now && s.end > now;
-          return h('li', { class: active ? 'on' : '' },
-            h('span', { class: 'astro-when' }, sameDay(s.start, s.end) || s.end - s.start < 60e3
+      h('div', { class: 'card-head' }, h('h2', null, 'Moon timeline · next 7 days')),
+      h('p', { class: 'sub' }, h('span', { class: 'astro-key bad' }), ' Moon in the 1st, 7th or 8th from a rasi or lagna of either of you · ',
+        h('span', { class: 'astro-key good' }), ' clear for both'),
+      h('ul', { class: 'astro-list' }, week.map(s => {
+        const active = s.start <= now && s.end > now;
+        return h('li', { class: (s.hits.length ? 'bad' : 'good') + (active ? ' on' : '') },
+          h('div', { class: 'astro-li-head' },
+            h('span', { class: 'astro-when' }, sameDay(s.start, s.end)
               ? `${dayFmt(s.start)}, ${timeFmt(s.start)} – ${timeFmt(s.end)}`
               : `${dayFmt(s.start)} ${timeFmt(s.start)} → ${dayFmt(s.end)} ${timeFmt(s.end)}`),
-            h('span', null, `${C.RASI[s.sign]}: ${s.why.map(C.label).join(', ')}`),
-            active ? h('span', { class: 'pill' }, 'now') : null);
-        })) : h('p', { class: 'muted' }, 'Nothing in the next 7 days.'))));
+            active ? h('span', { class: 'pill' }, 'now') : null),
+          h('b', null, `Moon in ${C.RASI[s.sign]}`),
+          s.hits.length ? s.hits.map(x => h('span', { class: 'astro-hit' }, hitText(x))) : h('span', { class: 'astro-hit' }, 'Good for both of you'));
+      })));
 
     fill(body,
       h('div', { class: 'astro-top' }, moonCard, watchCard),
@@ -427,8 +516,11 @@ const Astro = (() => {
       loaded = true;
       if (nav) nav.hidden = !pair;
       banner();
+      // let the admin message and upload pop-ups (shown just after sign-in) go first
+      clearTimeout(popTimer); popTimer = setTimeout(schedulePopup, 6000);
     },
     reset() {
+      clearTimeout(popTimer);
       pair = null; pairs = []; loaded = false;
       const nav = document.getElementById('navAstro'); if (nav) nav.hidden = true;
       const box = document.getElementById('astroAlert'); if (box) box.hidden = true;

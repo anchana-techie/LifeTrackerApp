@@ -674,8 +674,11 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
 /* =========================================================
  * Astrology (astro.js)
  * ======================================================= */
-.astro-banner { display: flex; align-items: flex-start; gap: 12px; background: var(--pink-soft); color: var(--pink-ink); border-radius: 14px; padding: 12px 14px; margin-bottom: 18px; font-size: .88rem; }
+.astro-banner { display: flex; align-items: flex-start; gap: 12px; border: 1px solid; border-radius: 14px; padding: 12px 14px; margin-bottom: 18px; font-size: .88rem; }
+.astro-banner.bad { background: var(--pink-soft); color: var(--pink-ink); border-color: color-mix(in srgb, var(--pink) 40%, transparent); }
+.astro-banner.good { background: color-mix(in srgb, var(--good) 12%, var(--surface)); color: var(--good); border-color: color-mix(in srgb, var(--good) 40%, transparent); }
 .astro-banner ul { margin: 4px 0 0; padding-left: 18px; }
+.astro-banner p { margin: 2px 0 0; }
 .astro-banner > div { flex: 1; min-width: 0; }
 .astro-banner .btn { flex: none; }
 .astro-banner-ico { font-size: 1.4rem; line-height: 1; }
@@ -684,11 +687,33 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
 .astro-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
 .astro-big { font-size: 1.5rem; font-weight: 700; margin: 0; }
 .astro-card h2, .astro-today h2, .astro-watch h2 { margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: 6px; }
-.astro-person h3 { font-size: .92rem; margin: 14px 0 6px; }
 .astro-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .astro-list li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: .86rem; }
-.astro-list li.on { border-color: var(--pink); background: var(--pink-soft); color: var(--pink-ink); }
-.astro-when { font-weight: 600; min-width: 190px; }
+.astro-list li { flex-direction: column; align-items: flex-start; border-left-width: 4px; }
+.astro-list li.bad { border-left-color: var(--pink); }
+.astro-list li.good { border-left-color: var(--good); }
+.astro-list li.bad.on { border-color: var(--pink); background: var(--pink-soft); color: var(--pink-ink); }
+.astro-list li.good.on { border-color: var(--good); background: color-mix(in srgb, var(--good) 12%, var(--surface)); }
+.astro-li-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; width: 100%; }
+.astro-when { font-weight: 600; }
+.astro-hit { color: inherit; opacity: .9; }
+.astro-list li.good .astro-hit { color: var(--good); }
+.astro-key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: middle; }
+.astro-key.bad { background: var(--pink); }
+.astro-key.good { background: var(--good); }
+
+/* 8 am pop-up */
+.notice-ico.good { background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: var(--good); }
+.astro-pop { text-align: left; }
+.astro-pop .notice-ico, .astro-pop h2 { text-align: center; }
+.astro-pop-list { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; font-size: .9rem; }
+.astro-pop-list li { border-left: 4px solid; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); }
+.astro-pop-list li.bad { border-color: var(--pink); }
+.astro-pop-list li.good { border-color: var(--good); }
+.astro-pop-list li span { display: block; color: var(--ink-2); }
+.notice-modal .astro-pop-advice { color: var(--ink); font-weight: 600; }
+.notice-modal .astro-pop-chandra { margin-top: 8px; color: var(--pink); font-size: .88rem; }
+.astro-pop .sub { margin-top: 8px; }
 .astro-note { margin-top: 14px; }
 
 /* South Indian grid: 12 fixed rasi boxes around an empty centre */
@@ -730,6 +755,5 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
   .astro-top { grid-template-columns: 1fr; }
   .astro-charts { grid-template-columns: 1fr; }
   .astro-coords { grid-template-columns: 1fr 1fr; }
-  .astro-when { min-width: 0; }
   .astro-grid { grid-template-rows: repeat(4, minmax(58px, auto)); }
 }

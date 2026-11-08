@@ -3,6 +3,8 @@
 Newest first. Add a line here with every feature change.
 
 ## 2026-11-09
+- **Added** Astrology: a daily pop-up for linked couples the first time each person opens the app at or after 8 am (once a day per browser, after any admin message or upload pop-up). It lists today's Moon stretches, who is affected and why, a fixed advice line (rotating each day; separate wording for you, your partner, both, or all clear), a Chandrashtamam note when it applies, and the next stretch that is clear for both.
+- **Changed** Astrology: the 7-day Moon watch is now one couple timeline showing every Moon stretch, green when clear for both and red when it is the 1st, 7th or 8th from either person's rasi or lagna. The Today banner turns green ("All clear today") on clear days.
 - **Added** Astrology for couples (`astro.js`). The admin links two members on the new **Astrology** tab and enters each person's birth date, time and place (city search or coordinates). Only those two people (and the admin) can read the pair: each sees both rasi charts in the South Indian layout (lagna, rasi, nakshatra, planets, Moon today) and a 7-day Moon watch. A banner on Today shows when the moving Moon is in the 1st, 7th or 8th house from either person's rasi or lagna (8th from rasi = Chandrashtamam). Charts are calculated in the browser (Astronomy Engine + Lahiri ayanamsa, checked against the Swiss Ephemeris); no `Code.gs` change. New Firestore collection `astro_pairs`: **paste and publish the updated `firestore.rules`**.
 
 ## 2026-11-05

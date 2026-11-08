@@ -128,7 +128,9 @@ When you change `Code.gs` later: **Deploy → Manage deployments → ✏️ Edit
 5. **Astrology** (only for people the admin has linked, and for the admin):
    - The admin opens **Astrology**, picks two members, enters each one's birth date, time and place (city search, or coordinates by hand) → **Link and save**. A person can be in one pair at a time. **Edit**, **Charts** and **Unlink** are in the *Linked couples* list.
    - The two people then get an **Astrology** tab with both South Indian rasi charts (lagna, rasi, nakshatra, planets, and where the Moon is today) and a 7-day Moon watch.
-   - A **Moon watch today** banner appears on Today whenever the moving Moon is in the 1st, 7th or 8th house from either person's rasi or lagna (8th from rasi is Chandrashtamam). Both people see the alerts for both of them.
+   - The **Moon timeline** lists every Moon stretch for the next 7 days: **red** when the Moon is in the 1st, 7th or 8th house from either person's rasi or lagna (8th from rasi is Chandrashtamam), **green** when it is clear for both.
+   - The Today banner shows the same for today: red *Moon watch today* or green *All clear today*.
+   - The first time each person opens the app at or after **8 am**, a pop-up gives the day's Moon, who it affects and a short piece of advice (once a day). The site cannot notify you while it is closed, so it appears when you next open it.
    - Charts use sidereal positions with the Lahiri ayanamsa and mean Rahu/Ketu, calculated in the browser with Astronomy Engine (loaded from jsDelivr only when needed). City search uses the free Open-Meteo geocoding service.
 
 **Try it first:** Settings → *Load demo data* shows every screen with made-up numbers. Nothing is sent anywhere.

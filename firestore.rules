@@ -74,6 +74,23 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.userId == request.auth.uid;
     }
 
+    // astro_pairs = two people linked by the admin, with their birth details. Only the admin writes them;
+    // the admin and the two people in the pair can read them. The app finds a person's pair with an
+    // array-contains query on members, which these rules can prove is limited to their own rows.
+    match /astro_pairs/{id} {
+      function validPair() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['members', 'names', 'births', 'by', 'createdAt', 'updatedAt'])
+          && d.members is list && d.members.size() == 2 && d.members[0] != d.members[1]
+          && d.names is map && d.names.keys().hasOnly(d.members)
+          && d.births is map && d.births.keys().hasOnly(d.members) && d.births.size() == 2
+          && d.by is string && d.by.size() <= 60;
+      }
+      allow read: if isAdmin() || (signedIn() && request.auth.uid in resource.data.members);
+      allow create, update: if isAdmin() && validPair();
+      allow delete: if isAdmin();
+    }
+
     // messages = a notification the admin sends to people. Addressed by lower-cased email so it also
     // reaches someone who was invited but has not registered yet. The admin creates them; the person
     // it is addressed to reads it and deletes it once seen, so it shows once and is then gone.

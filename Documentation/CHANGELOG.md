@@ -2,6 +2,9 @@
 
 Newest first. Add a line here with every feature change.
 
+## 2026-11-09
+- **Added** Astrology for couples (`astro.js`). The admin links two members on the new **Astrology** tab and enters each person's birth date, time and place (city search or coordinates). Only those two people (and the admin) can read the pair: each sees both rasi charts in the South Indian layout (lagna, rasi, nakshatra, planets, Moon today) and a 7-day Moon watch. A banner on Today shows when the moving Moon is in the 1st, 7th or 8th house from either person's rasi or lagna (8th from rasi = Chandrashtamam). Charts are calculated in the browser (Astronomy Engine + Lahiri ayanamsa, checked against the Swiss Ephemeris); no `Code.gs` change. New Firestore collection `astro_pairs`: **paste and publish the updated `firestore.rules`**.
+
 ## 2026-11-05
 - **Added** Admin Today and Insights show how much each person completed: items ticked today and over 30 days, Daily Dos and Habits separately, perfect days, completion bands and a detail table. Task names stay hidden.
 - **Added** The Assistant tab for admins: ask about participants' completion (who is doing best, who has gone quiet, one person's trend) or ask for a completion report. The script picks the admin prompt by role on the server and the tools only return completion statistics, so no personal data is involved. Redeploy `Code.gs`.

@@ -18,6 +18,7 @@ Browser (GitHub Pages)
 |---|---|
 | `index.html`, `style.css`, `app.js` | The website. |
 | `account.js` | Firebase sign-in, registration, change password, Firestore reads. |
+| `astro.js` | Astrology for linked couples: rasi charts and the daily Moon watch, calculated in the browser. |
 | `config.js` | **You fill this in:** Apps Script URL + Firebase web config. |
 | `Code.gs`, `appsscript.json` | The Apps Script bridge (Drive upload + Sheet reads/writes). |
 | `firestore.rules` | Security rules — the rules are what stop people seeing each other's files. |
@@ -39,6 +40,7 @@ Browser (GitHub Pages)
 | `document_link` (fact table) | `<userId>_<year>` | `userId`, `userName`, `year`, `driveFileId`, `driveLink`, `uploadedAt` |
 | `invites` | the email (lower-case) | `email`, `invitedAt` |
 | `usernames` | lower-cased username | `uid` (reserves the name) |
+| `astro_pairs` | auto id | `members` (two user ids), `names`, `births` (per user: `date`, `time`, `place`, `lat`, `lon`, `tz`), `by`, `createdAt`, `updatedAt` |
 
 There is **no password column** — Firebase Authentication stores passwords (hashed); duplicating them in a table would only make a leak worse.
 
@@ -123,6 +125,12 @@ When you change `Code.gs` later: **Deploy → Manage deployments → ✏️ Edit
    - **Weight:** trend line with 7-day average, weekly rate from a best-fit line, range, weigh-in consistency, 30-day projection, and which items go with lower/higher weight the next morning.
    - **Spending & restock:** budget vs planned vs bought per month, over-budget warnings, unplanned purchases, repeat items, biggest planned items, and a restock tracker (average gap between purchases → next expected date → overdue / due soon).
 
+5. **Astrology** (only for people the admin has linked, and for the admin):
+   - The admin opens **Astrology**, picks two members, enters each one's birth date, time and place (city search, or coordinates by hand) → **Link and save**. A person can be in one pair at a time. **Edit**, **Charts** and **Unlink** are in the *Linked couples* list.
+   - The two people then get an **Astrology** tab with both South Indian rasi charts (lagna, rasi, nakshatra, planets, and where the Moon is today) and a 7-day Moon watch.
+   - A **Moon watch today** banner appears on Today whenever the moving Moon is in the 1st, 7th or 8th house from either person's rasi or lagna (8th from rasi is Chandrashtamam). Both people see the alerts for both of them.
+   - Charts use sidereal positions with the Lahiri ayanamsa and mean Rahu/Ketu, calculated in the browser with Astronomy Engine (loaded from jsDelivr only when needed). City search uses the free Open-Meteo geocoding service.
+
 **Try it first:** Settings → *Load demo data* shows every screen with made-up numbers. Nothing is sent anywhere.
 
 **Theme:** the sun/moon button switches between auto, light and dark.
@@ -150,6 +158,7 @@ You can rename items, reorder them, or add new rows in the sheet itself — the 
 - The browser never sends a sheet link. The script verifies the Firebase sign-in, looks up *that person's* `document_link` row (Firestore applies the rules as that person), and only then opens the file. Browsers cannot create or edit `document_link` rows — only the script can — so nobody can point their row at someone else's file.
 - Drive files stay private to your Google account; people reach them only through the site.
 - The admin view is read-only: the script refuses every save action for another person's file.
+- Birth details live in `astro_pairs`. Only the admin can write them, and only the admin and the two people in a pair can read that pair.
 
 ## Troubleshooting
 | Message | Fix |

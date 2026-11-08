@@ -327,10 +327,14 @@ function switchTab(tab) {
   $('.nav-btn[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
   window.scrollTo(0, 0);
   $$('.tab-panel').forEach(p => { p.hidden = p.id !== 'tab-' + tab; });
-  if (S.data || S.groupMode || ['upload', 'files', 'admin', 'settings'].includes(tab)) renderTab();
+  if (S.data || S.groupMode || ['upload', 'files', 'admin', 'settings', 'astro'].includes(tab)) renderTab();
+  if (tab === 'log') astro()?.banner();
 }
+// astro.js loads after this file; reach it lazily so a failed load never breaks the app
+const astro = () => (typeof Astro !== 'undefined' ? Astro : null);
 function renderAll() { renderTab(); }
 function renderTab() {
+  if (S.tab === 'astro') return astro()?.render();
   if (S.groupMode && ['log', 'buy', 'analysis'].includes(S.tab)) return renderGroupTab(S.tab);
   if (S.tab === 'log') renderLog();
   else if (S.tab === 'buy') renderBuy();
@@ -2222,6 +2226,7 @@ function clearSheet() {
 async function onAuthChange(profile, msg) {
   if (!profile) {
     stopWatchingMessages();
+    astro()?.reset();
     $$('.modal-overlay').forEach(o => o.remove());
     Object.assign(S, { user: null, members: [], memberYears: {}, groupMode: false, group: null, years: [], year: null, viewUid: null, demo: false, files: null, fileCache: {}, nextYear: null, pending: freshPending(), buyDraft: null, buyDirty: false });
     clearSheet();
@@ -2240,6 +2245,7 @@ async function onAuthChange(profile, msg) {
   // an admin only sees completion across everyone: no personal pages, no files, no tasks; the assistant only knows completion
   $$('.nav-btn').forEach(b => { if (['buy', 'files', 'tasks', 'timegen'].includes(b.dataset.tab)) b.hidden = admin; });
   S.members = []; S.memberYears = {};
+  astro()?.onSignIn(profile);   // finds this person's linked pair, shows the Astrology tab and the Today banner
   if (admin) {
     try { S.members = (await Account.listMembers()).filter(m => !m.deleted); await loadMemberYears(); } catch (err) { toast(err.message, true); }
     await enterGroup();

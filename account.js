@@ -191,6 +191,27 @@ const Account = (() => {
     },
     async removeLink(uid, year) {
       try { await db.doc(`document_link/${uid}_${year}`).delete(); } catch (e) { fail(e); }
+    },
+
+    /* ----- astrology pairs (astro_pairs): written by the admin, read by the admin and the two people in it ----- */
+    /** The pair this person belongs to, or null. */
+    async myAstroPair(uid) {
+      const snap = await db.collection('astro_pairs').where('members', 'array-contains', uid).limit(1).get();
+      return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+    },
+    async listAstroPairs() {
+      try { return (await db.collection('astro_pairs').get()).docs.map(d => ({ id: d.id, ...d.data() })); } catch (e) { fail(e); }
+    },
+    /** Admin: create (id null) or replace a pair. */
+    async saveAstroPair(id, data) {
+      const now = firebase.firestore.FieldValue.serverTimestamp();
+      try {
+        if (id) await db.doc('astro_pairs/' + id).set({ ...data, updatedAt: now });
+        else await db.collection('astro_pairs').add({ ...data, createdAt: now, updatedAt: now });
+      } catch (e) { fail(e); }
+    },
+    async deleteAstroPair(id) {
+      try { await db.doc('astro_pairs/' + id).delete(); } catch (e) { fail(e); }
     }
   };
 })();

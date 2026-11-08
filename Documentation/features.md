@@ -12,6 +12,7 @@
 | Upload | Person | Choose a year and an `.xlsx`; lists the years already uploaded. Or **create next year's file**: start from your latest tasks, add or remove Daily Dos / Habits / Products, then create and upload (or download). |
 | Files | Person | Read-only tables of your own uploaded years' sheets, by month. Not available to the admin. |
 | Admin | Admin only | Invite emails, see members and their years, remove a wrong upload. The admin's Today and Insights show **completion only** across everyone. |
+| Astrology | Admin, linked people | Admin links two members and enters birth date, time and place. The two people see both South Indian rasi charts, a 7-day Moon watch, and a banner on Today when the Moon is in the 1st, 7th or 8th from either person's rasi or lagna. Hidden for everyone else. |
 | Settings | Person | Change password, sign out, Daily Dos groups, demo data. |
 
 ## Rules of the system

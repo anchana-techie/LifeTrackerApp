@@ -15,15 +15,16 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons-outline.min.css">
-  <link rel="stylesheet" href="style.css?v=20261106d">
+  <link rel="stylesheet" href="style.css?v=20261109a">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" defer></script>
   <script src="config.js" defer></script>
-  <script src="account.js?v=20261106d" defer></script>
-  <script src="app.js?v=20261106d" defer></script>
-  <script src="group.js?v=20261106d" defer></script>
+  <script src="account.js?v=20261109a" defer></script>
+  <script src="app.js?v=20261109a" defer></script>
+  <script src="group.js?v=20261109a" defer></script>
+  <script src="astro.js?v=20261109a" defer></script>
 </head>
 <body>
 <!-- SIGN IN / REGISTER -->
@@ -76,6 +77,7 @@
     </div>
     <div class="nav-items" role="tablist">
       <button class="nav-btn" role="tab" data-tab="log" aria-selected="true"><i class="ti ti-checkbox" aria-hidden="true"></i><span>Today</span></button>
+      <button class="nav-btn" role="tab" data-tab="astro" id="navAstro" aria-selected="false" hidden><i class="ti ti-moon-stars" aria-hidden="true"></i><span>Astrology</span></button>
       <button class="nav-btn" role="tab" data-tab="buy" aria-selected="false"><i class="ti ti-shopping-cart" aria-hidden="true"></i><span>Buy list</span></button>
       <button class="nav-btn" role="tab" data-tab="tasks" aria-selected="false"><i class="ti ti-list-check" aria-hidden="true"></i><span>Tasks</span></button>
       <button class="nav-btn" role="tab" data-tab="timegen" aria-selected="false"><i class="ti ti-clock-play" aria-hidden="true"></i><span>TimeGenerator</span></button>
@@ -122,6 +124,7 @@
 
       <!-- TODAY -->
       <section id="tab-log" class="tab-panel" role="tabpanel">
+        <div id="astroAlert" hidden></div>
         <div class="empty" data-empty><i class="ti ti-link"></i><p>Choose a year above, or upload one in the Upload tab.</p></div>
         <div data-ready hidden>
           <div class="log-head">
@@ -142,6 +145,12 @@
             <button class="btn primary" id="saveDayBtn">Save to sheet</button>
           </div>
         </div>
+      </section>
+
+      <!-- ASTROLOGY -->
+      <section id="tab-astro" class="tab-panel" role="tabpanel" hidden>
+        <div class="log-head"><div><h1>Astrology</h1><p class="sub" id="astroSub"></p></div></div>
+        <div id="astroBody"></div>
       </section>
 
       <!-- BUY LIST -->

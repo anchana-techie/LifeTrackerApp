@@ -76,27 +76,69 @@ const AstroCore = (() => {
     const asc = ascendant(A, date, lat, lon), moon = planets.Mo.lon;
     const nakIdx = Math.floor(moon / (360 / 27));
     return {
-      asc, lagna: signOf(asc), rasi: planets.Mo.sign, planets,
+      asc, lagna: signOf(asc), rasi: planets.Mo.sign, planets, nakIdx,
       nakshatra: NAK[nakIdx], pada: Math.floor((moon % (360 / 27)) / (360 / 108)) + 1
     };
   }
 
-  /** Splits [from, to] into stretches with one Moon sign each, finding each change to within a minute. */
-  function moonSegments(A, from, to) {
-    const out = [], step = 2 * 3600e3;
-    let a = from.getTime(), sa = signOf(moonLon(A, from));
+  /** Splits [from, to] into stretches where key(date) stays the same, finding each change to within a minute.
+   *  The step must be shorter than the shortest stretch (2 hours suits Moon signs, nakshatras and tithis). */
+  function segments(key, from, to, step = 2 * 3600e3) {
+    const out = [];
+    let a = from.getTime(), ka = key(from);
     for (let b = a + step; ; b += step) {
-      const end = Math.min(b, to.getTime()), sb = signOf(moonLon(A, new Date(end)));
-      if (sb !== sa) {
+      const end = Math.min(b, to.getTime()), kb = key(new Date(end));
+      if (kb !== ka) {
         let lo = end - step < a ? a : end - step, hi = end;
-        while (hi - lo > 60e3) { const mid = (lo + hi) / 2; if (signOf(moonLon(A, new Date(mid))) === sa) lo = mid; else hi = mid; }
-        out.push({ sign: sa, start: new Date(a), end: new Date(hi) });
-        a = hi; sa = sb;
+        while (hi - lo > 60e3) { const mid = (lo + hi) / 2; if (key(new Date(mid)) === ka) lo = mid; else hi = mid; }
+        out.push({ key: ka, start: new Date(a), end: new Date(hi) });
+        a = hi; ka = kb;
       }
       if (end >= to.getTime()) break;
     }
-    out.push({ sign: sa, start: new Date(a), end: new Date(to.getTime()) });
+    out.push({ key: ka, start: new Date(a), end: new Date(to.getTime()) });
     return out;
+  }
+  /** Moon-sign stretches: [{ sign, start, end }] */
+  const moonSegments = (A, from, to) => segments(d => signOf(moonLon(A, d)), from, to).map(s => ({ sign: s.key, start: s.start, end: s.end }));
+  /** Nakshatra stretches: [{ nak, start, end }] */
+  const nakSegments = (A, from, to) => segments(d => Math.floor(moonLon(A, d) / (360 / 27)), from, to).map(s => ({ nak: s.key, start: s.start, end: s.end }));
+  /** Tithi stretches: [{ tithi (0-29), start, end }] */
+  const tithiOf = (A, d) => Math.floor(norm360(tropical(A, 'Moon', d) - tropical(A, 'Sun', d)) / 12);
+  const tithiSegments = (A, from, to) => segments(d => tithiOf(A, d), from, to).map(s => ({ tithi: s.key, start: s.start, end: s.end }));
+  const TITHI = ['Prathamai', 'Dwitiyai', 'Tritiyai', 'Chaturthi', 'Panchami', 'Shashti', 'Saptami', 'Ashtami', 'Navami', 'Dasami', 'Ekadasi', 'Dwadasi', 'Trayodasi', 'Chaturdasi'];
+  const tithiName = i => i === 14 ? 'Pournami' : i === 29 ? 'Amavasai' : `${i < 15 ? 'Shukla' : 'Krishna'} ${TITHI[i % 15]}`;
+
+  /* ----- gocharam: transits counted from the birth rasi, with the classic good houses ----- */
+  const GOOD = { Su: [3, 6, 10, 11], Ma: [3, 6, 11], Me: [2, 4, 6, 8, 10, 11], Ju: [2, 5, 7, 9, 11], Ve: [1, 2, 3, 4, 5, 8, 9, 11, 12], Sa: [3, 6, 11], Ra: [3, 6, 11], Ke: [3, 6, 11] };
+  /** [{ ab, sign, house, good, retro }] for the slow-moving planets, plus Sani's special phases. */
+  function gochara(natal, now) {
+    const list = Object.keys(GOOD).map(ab => {
+      const p = now[ab], house = houseFrom(natal.rasi, p.sign);
+      return { ab, sign: p.sign, house, good: GOOD[ab].includes(house), retro: p.retro && ab !== 'Ra' && ab !== 'Ke' };
+    });
+    const sa = list.find(x => x.ab === 'Sa').house;
+    const sani = sa === 12 ? 'Sade Sati (first phase)' : sa === 1 ? 'Sade Sati (peak, Janma Sani)' : sa === 2 ? 'Sade Sati (last phase)'
+      : sa === 8 ? 'Ashtama Sani' : sa === 4 ? 'Ardhashtama Sani' : '';
+    return { list, sani, guruBalam: list.find(x => x.ab === 'Ju').good };
+  }
+
+  /* ----- Tara balam: today's nakshatra counted from the birth nakshatra ----- */
+  const TARA = [['Janma', 'mixed'], ['Sampat', 'good'], ['Vipat', 'bad'], ['Kshema', 'good'], ['Pratyak', 'bad'], ['Sadhana', 'good'], ['Naidhana', 'bad'], ['Mitra', 'good'], ['Parama Mitra', 'good']];
+  const tara = (birthNak, nowNak) => { const n = ((nowNak - birthNak) % 27 + 27) % 27 % 9; return { n: n + 1, name: TARA[n][0], kind: TARA[n][1] }; };
+
+  /* ----- Rahu kalam, Yamagandam, Kuligai: one eighth of daylight each, by weekday ----- */
+  const KALAM = { rahu: [8, 2, 7, 5, 6, 4, 3], yama: [5, 4, 3, 2, 1, 7, 6], kuli: [7, 6, 5, 4, 3, 2, 1] };
+  /** dayStart = local midnight. Returns { sunrise, sunset, rahu: [from, to], yama, kuli } or null near the poles. */
+  function kalams(A, dayStart, lat, lon) {
+    const obs = new A.Observer(lat, lon, 0);
+    const rise = A.SearchRiseSet(A.Body.Sun, obs, +1, A.MakeTime(dayStart), 1);
+    if (!rise) return null;
+    const set = A.SearchRiseSet(A.Body.Sun, obs, -1, rise, 1);
+    if (!set) return null;
+    const r = rise.date.getTime(), part = (set.date.getTime() - r) / 8, wd = dayStart.getDay();
+    const span = k => [new Date(r + (k - 1) * part), new Date(r + k * part)];
+    return { sunrise: rise.date, sunset: set.date, rahu: span(KALAM.rahu[wd]), yama: span(KALAM.yama[wd]), kuli: span(KALAM.kuli[wd]) };
   }
 
   /** For each Moon stretch, which watched houses it falls in for this chart. Only stretches with a hit are returned. */
@@ -129,7 +171,7 @@ const AstroCore = (() => {
     return new Date(t);
   }
 
-  return { RASI, RASI_EN, NAK, PLANETS, WATCH, signOf, houseFrom, ordinal, ayanamsa, moonLon, ascendant, chart, moonSegments, hits, label, birthMoment, tzOffsetMin };
+  return { RASI, RASI_EN, NAK, PLANETS, WATCH, GOOD, signOf, houseFrom, ordinal, ayanamsa, moonLon, ascendant, chart, segments, moonSegments, nakSegments, tithiSegments, tithiName, gochara, tara, kalams, hits, label, birthMoment, tzOffsetMin };
 })();
 if (typeof module !== 'undefined') module.exports = AstroCore;
 
@@ -159,7 +201,6 @@ const Astro = (() => {
 
   const timeFmt = d => d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
   const dayFmt = d => d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
-  const sameDay = (a, b) => a.toDateString() === b.toDateString();
   const startOfDay = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
   const whenText = (s, dayStart, dayEnd) => {
     const from = s.start <= dayStart ? null : s.start, to = s.end >= dayEnd ? null : s.end;
@@ -204,107 +245,162 @@ const Astro = (() => {
       h('p', { class: 'sub astro-legend' }, 'La = lagna · ® = retrograde · ', h('span', { class: 'astro-now-key' }, icon('moon'), 'now'), ' = Moon today'));
   }
 
-  /* ---------- couple timeline ---------- */
-  const who = p => p.uid === S.user?.uid ? 'You' : p.name;
-  const hitText = x => `${who(x)}: ${x.why.map(C.label).join(', ')}`;
-
-  /** Every Moon stretch overlapping [from, to] and who it hits: [{ sign, start, end, hits: [{ uid, name, why }] }].
-   *  An empty hits list means the stretch is clear for both people. */
-  function timeline(A, from, to) {
-    // start three days early so a stretch already running at `from` shows its real start time
-    // and run three days past `to` so the last stretch shows its real end time
-    const segs = C.moonSegments(A, new Date(from.getTime() - 3 * 864e5), new Date(to.getTime() + 3 * 864e5)).filter(s => s.end > from && s.start < to);
-    const people = pair.members.map(uid => ({ uid, name: pair.names[uid] || 'Person', ch: personChart(A, uid) }));
-    return segs.map(s => ({ ...s, hits: people.map(p => { const x = C.hits(p.ch, [s])[0]; return x ? { uid: p.uid, name: p.name, why: x.why } : null; }).filter(Boolean) }));
-  }
+  /* ---------- daily reading ---------- */
+  // The Moon (1st/7th/8th from rasi or lagna) and Tara balam decide the day's rating; the slow planets
+  // (gocharam from the birth rasi) are the background "season" and add advice but never change the rating.
+  const PL = Object.fromEntries(C.PLANETS.map(([ab, , ta]) => [ab, ta]));
+  const nameOf = uid => pair.names[uid] || 'Person';
+  const who = uid => uid === S.user?.uid ? 'You' : nameOf(uid);
   const today = () => { const d0 = startOfDay(new Date()); return [d0, new Date(d0.getTime() + 864e5)]; };
+  const dayNo = () => Math.round(startOfDay(new Date()).getTime() / 864e5);
+  const pick = (arr, salt = 0) => arr[(dayNo() + salt) % arr.length];
+  const overlap = (s, a, b) => Math.max(0, Math.min(s.end, b) - Math.max(s.start, a));
+  const span = (s, a, b) => whenText(s, a, b);
+  const RATING = { good: 'Good day', mixed: 'Mixed day', bad: 'Careful day' };
+  const WORST = { good: 0, mixed: 1, bad: 2 };
 
-  /** Banner at the top of Today: red when the Moon is in a 1st/7th/8th for either person today, green otherwise. */
+  const BASE = {
+    good: ['A good day overall: go ahead with plans and decisions.', 'Things should flow well today: use it to get important things done.', 'A positive day: a good time to start something or meet people.'],
+    mixed: ['A mixed day: keep plans flexible and pace yourself.', 'Some ups and downs today: focus on routine work and avoid rushing.', 'An average day: fine for steady work, less so for big moves.'],
+    bad: ['Keep the day simple: rest, avoid arguments and postpone big decisions.', 'Go gently today: stick to routine and don’t take things personally.', 'A day to slow down: avoid risks, new starts and heated topics.']
+  };
+  const MOON_TIP = {
+    'rasi-8': 'Chandrashtamam: avoid starting anything new, long travel or signing important papers.',
+    'lagna-8': 'Moon 8th from lagna: energy may dip; avoid risks and look after your health.',
+    'rasi-1': 'Moon on the birth rasi: feelings run high; rest well and don’t overcommit.',
+    'lagna-1': 'Moon on the lagna: you may feel restless; keep the schedule light.',
+    'rasi-7': 'Moon 7th from rasi: choose your words carefully with your partner and others.',
+    'lagna-7': 'Moon 7th from lagna: avoid arguments and give others some space.'
+  };
+  const MOON_ORDER = ['rasi-8', 'lagna-8', 'rasi-1', 'lagna-1', 'rasi-7', 'lagna-7'];
+  const MOON_GOOD = ['Moon in a favourable house: emotions stay steady; good for conversations and plans.', 'The Moon is kind today: you should feel calm and clear-headed.'];
+  const TARA_TIP = {
+    'Janma': 'Janma tara: a sensitive day; look after your health and avoid risks.',
+    'Sampat': 'Sampat tara: good for money matters and purchases.',
+    'Vipat': 'Vipat tara: expect small hurdles; double-check plans and documents.',
+    'Kshema': 'Kshema tara: good for health, home and wellbeing.',
+    'Pratyak': 'Pratyak tara: obstacles are likely; avoid confrontations.',
+    'Sadhana': 'Sadhana tara: effort pays off; good for pushing work goals.',
+    'Naidhana': 'Naidhana tara: a low day; avoid big risks and travel if you can.',
+    'Mitra': 'Mitra tara: good for meeting friends and teamwork.',
+    'Parama Mitra': 'Parama Mitra tara: a very supportive day for important tasks.'
+  };
+
+  function seasonTips(g) {
+    const at = ab => g.list.find(x => x.ab === ab), sa = at('Sa'), out = [];
+    if (/Sade Sati/.test(g.sani)) out.push(`Sani: ${g.sani}. Steady effort beats shortcuts; avoid risky investments.`);
+    else if (g.sani === 'Ashtama Sani') out.push('Sani: Ashtama Sani. Be patient, look after your health and avoid big risks.');
+    else if (g.sani === 'Ardhashtama Sani') out.push('Sani: Ardhashtama Sani. Home and family need extra care; stay patient.');
+    else if (sa.good) out.push(`Sani in the ${C.ordinal(sa.house)} supports steady progress and hard work.`);
+    out.push(g.guruBalam ? 'Guru balam is with you: a good period for family plans and auspicious events.'
+      : 'Guru is not in a strong house: take advice before big commitments.');
+    const more = [];
+    if (at('Ma').good) more.push('Sevvai gives courage: a good time to tackle tough tasks.'); else more.push('Sevvai is unfavourable: watch your temper and drive carefully.');
+    if (at('Su').good) more.push('Suriyan supports recognition at work.');
+    if (at('Me').good) more.push('Budhan helps communication, study and paperwork.');
+    if (at('Ve').good) more.push('Sukran brings comfort: good for relationships and leisure.');
+    if (at('Ra').good || at('Ke').good) more.push(`${at('Ra').good ? 'Rahu' : 'Ketu'} favours bold moves.`);
+    out.push(pick(more, 2));
+    return out;
+  }
+
+  /** One person's reading for the local day starting at d0. Waking hours (6 am to 10 pm) decide the rating. */
+  function reading(A, uid, d0) {
+    const ch = personChart(A, uid), w0 = new Date(d0.getTime() + 6 * 36e5), w1 = new Date(d0.getTime() + 22 * 36e5);
+    const pad = 3 * 864e5, d1 = new Date(d0.getTime() + 864e5);
+    const moonSegs = C.moonSegments(A, new Date(d0 - pad), new Date(d1.getTime() + pad)).filter(s => s.end > d0 && s.start < d1);
+    const moonHits = C.hits(ch, moonSegs);
+    const counted = moonHits.filter(s => overlap(s, w0, w1) >= 2 * 36e5);   // a brief touch in the night does not count
+    const keys = counted.flatMap(s => s.why.map(w => `${w.ref}-${w.house}`));
+    const chandra = keys.includes('rasi-8');
+    const moonBad = counted.length > 0;
+    const nakSegs = C.nakSegments(A, new Date(d0 - pad), new Date(d1.getTime() + pad)).filter(s => s.end > d0 && s.start < d1)
+      .map(s => ({ ...s, tara: C.tara(ch.nakIdx, s.nak) }));
+    const main = nakSegs.reduce((a, b) => overlap(b, w0, w1) > overlap(a, w0, w1) ? b : a);
+    const kind = main.tara.kind;
+    const score = (moonBad ? -2 : 1) + (kind === 'good' ? 1 : kind === 'bad' ? -1 : -0.5);
+    const rating = chandra || score <= -2 ? 'bad' : score >= 2 ? 'good' : 'mixed';
+    const g = C.gochara(ch, C.chart(A, new Date(d0.getTime() + 12 * 36e5), 0, 0).planets);
+    const moonKey = MOON_ORDER.find(k => keys.includes(k));
+    return {
+      uid, name: nameOf(uid), rating, chandra, moonSegs, moonHits, nakSegs, tara: main.tara, g,
+      tips: [pick(BASE[rating], uid.length), moonKey ? MOON_TIP[moonKey] : pick(MOON_GOOD, 1), TARA_TIP[main.tara.name]],
+      season: seasonTips(g)
+    };
+  }
+
+  function coupleLine(rs) {
+    const [a, b] = rs;
+    if (a.rating === 'good' && b.rating === 'good') return pick(['A good day to plan something together.', 'Great day for a shared plan, an outing or a joint decision.']);
+    if (a.rating === 'bad' && b.rating === 'bad') return 'A sensitive day for you both: be extra patient with each other and keep plans simple.';
+    if (a.rating === b.rating) return 'A mixed day for both: keep plans flexible and check in with each other.';
+    const [better, other] = WORST[a.rating] < WORST[b.rating] ? [a, b] : [b, a];
+    return better.uid === S.user?.uid
+      ? `You have the easier day: be patient with ${other.name} and take the lead on plans.`
+      : `${better.name} has the easier day: let them take the lead${other.uid === S.user?.uid ? ' and go easy on yourself' : ''}.`;
+  }
+
+  function dayInfo(A, d0) {
+    const d1 = new Date(d0.getTime() + 864e5), pad = 3 * 864e5;
+    const cut = segs => segs.filter(s => s.end > d0 && s.start < d1);
+    const me = pair.births[S.user?.uid] || pair.births[pair.members[0]];
+    return {
+      moon: cut(C.moonSegments(A, new Date(d0 - pad), new Date(d1.getTime() + pad))),
+      nak: cut(C.nakSegments(A, new Date(d0 - pad), new Date(d1.getTime() + pad))),
+      tithi: cut(C.tithiSegments(A, new Date(d0 - pad), new Date(d1.getTime() + pad))),
+      kalam: C.kalams(A, d0, me.lat, me.lon), city: (me.place || '').split(',')[0]
+    };
+  }
+  /** "Thulam until 2:48 am, then Viruchigam" style text for the stretches of one day. */
+  const chain = (segs, name, d0, d1) => segs.map((s, i) => i === 0 ? `${name(s)} ${span(s, d0, d1)}`
+    : name(s) + (s.end < d1 ? ` until ${timeFmt(s.end)}` : '')).join(', then ');
+  const kalamText = k => k ? `Rahu kalam ${timeFmt(k.rahu[0])} – ${timeFmt(k.rahu[1])}` : '';
+
+  const pill = r => h('span', { class: 'pill astro-rate ' + r.rating }, RATING[r.rating]);
+
+  /** Banner at the top of Today. */
   async function banner() {
     const box = document.getElementById('astroAlert');
     if (!box) return;
     if (!pair) { box.hidden = true; return; }
     try {
-      const A = await loadLib(), [d0, d1] = today(), tl = timeline(A, d0, d1);
-      const bad = tl.some(s => s.hits.length);
-      fill(box, h('div', { class: 'astro-banner ' + (bad ? 'bad' : 'good'), role: 'status' },
-        h('span', { class: 'astro-banner-ico' }, icon(bad ? 'moon-stars' : 'circle-check')),
+      const A = await loadLib(), [d0] = today(), rs = pair.members.map(u => reading(A, u, d0)), info = dayInfo(A, d0);
+      const worst = rs.reduce((m, r) => Math.max(m, WORST[r.rating]), 0), cls = ['good', 'mixed', 'bad'][worst];
+      const chandra = rs.filter(r => r.chandra).map(r => who(r.uid));
+      fill(box, h('div', { class: 'astro-banner ' + cls, role: 'status' },
+        h('span', { class: 'astro-banner-ico' }, icon(cls === 'good' ? 'circle-check' : 'moon-stars')),
         h('div', null,
-          h('b', null, bad ? 'Moon watch today' : 'All clear today'),
-          bad
-            ? h('ul', null, tl.map(s => h('li', null, h('b', null, `${C.RASI[s.sign]}, ${whenText(s, d0, d1)}`), ': ',
-              s.hits.length ? s.hits.map(hitText).join(' · ') : 'clear for both of you')))
-            : h('p', null, `Moon in ${tl.map(s => C.RASI[s.sign]).join(', then ')} is good for both of you.`)),
-        h('button', { class: 'btn small ghost', type: 'button', onclick: () => switchTab('astro') }, 'Charts')));
+          h('b', null, 'Today’s stars'),
+          h('ul', null, rs.map(r => h('li', null, h('b', null, who(r.uid)), `: ${RATING[r.rating]} · ${r.tara.name} tara`))),
+          h('p', null, `Moon in ${chain(info.moon, s => C.RASI[s.sign], d0, new Date(d0.getTime() + 864e5))}`
+            + (chandra.length ? ` · Chandrashtamam for ${chandra.join(' and ')}` : '')
+            + (info.kalam ? ` · ${kalamText(info.kalam)}` : ''))),
+        h('button', { class: 'btn small ghost', type: 'button', onclick: () => switchTab('astro') }, 'Details')));
       box.hidden = false;
     } catch (err) { box.hidden = true; console.warn(err); }
   }
 
-  /* ---------- 8 am pop-up (shown the first time the app is open after 8 am, once a day) ---------- */
-  const ADVICE = {
-    clear: [
-      'The Moon is favourable for both of you today. A good day to plan things together or start something new.',
-      'All clear for you both. Good for outings, decisions and getting things done as a team.',
-      'A smooth Moon for both of you. Use the easy energy to tick off something you have been putting off.',
-      'Good vibes for both of you today. Make time for each other and be generous with plans.'
-    ],
-    self: [
-      'You may feel more sensitive today. Keep plans light and be easy on yourself.',
-      'A low-energy Moon for you. Rest well, skip heated topics and hold off on big decisions.',
-      'Your Moon is in a tricky spot. Keep the day simple and let small things slide.',
-      'Take it slow today. Avoid arguments and leave major choices for a clearer day.'
-    ],
-    partner: [
-      '{name} may feel more sensitive today. Be patient and keep plans light together.',
-      'Go gently with {name} today. Avoid arguments; small kindnesses go a long way.',
-      'A low-energy day for {name}. Give some space and skip heated topics.',
-      '{name}’s Moon is in a tricky spot. Offer support and save big decisions for later.'
-    ],
-    both: [
-      'A sensitive day for both of you. Keep plans simple, avoid arguments and postpone big decisions.',
-      'You may both feel a bit off today. Be extra patient with each other and get good rest.',
-      'The Moon is in a tough spot for you both. Slow down, skip heated topics and save big plans for a clearer day.'
-    ]
-  };
+  /* ---------- 8 am pop-up (shown the first time the app is open at or after 8 am, once a day) ---------- */
   let popTimer = null;
 
-  function popupContent(A) {
-    const now = new Date(), [d0, d1] = today(), tl = timeline(A, now, d1);
-    const hit = new Map();
-    tl.forEach(s => s.hits.forEach(x => {
-      const p = hit.get(x.uid) || { ...x, chandra: false };
-      p.chandra ||= x.why.some(w => w.ref === 'rasi' && w.house === 8);
-      hit.set(x.uid, p);
-    }));
-    const day = Math.round(d0.getTime() / 864e5), pick = (arr, salt = 0) => arr[(day + salt) % arr.length];
-    const people = [...hit.values()], me = S.user?.uid;
-    const advice = !people.length ? pick(ADVICE.clear)
-      : people.length === 2 ? pick(ADVICE.both)
-      : people[0].uid === me ? pick(ADVICE.self) : pick(ADVICE.partner, 1).replace('{name}', people[0].name);
-    const chandra = people.filter(p => p.chandra);
-    const chandraLine = chandra.length
-      ? `Chandrashtamam for ${chandra.map(p => p.uid === me ? 'you' : p.name).join(' and ')}: if you can, avoid starting anything new, long travel or signing important papers.`
-      : '';
-    let next = null;
-    if (people.length) next = timeline(A, now, new Date(now.getTime() + 7 * 864e5)).find(s => !s.hits.length && s.start > now);
-    return { tl, d0, d1, bad: people.length > 0, advice, chandraLine, next };
-  }
-
   async function showPopup() {
-    const A = await loadLib(), c = popupContent(A);
+    const A = await loadLib(), [d0, d1] = today(), rs = pair.members.map(u => reading(A, u, d0)), info = dayInfo(A, d0);
+    const worst = rs.reduce((m, r) => Math.max(m, WORST[r.rating]), 0), cls = ['good', 'mixed', 'bad'][worst];
+    const me = S.user?.uid;
+    rs.sort((a, b) => (a.uid === me ? -1 : b.uid === me ? 1 : 0));
     const close = () => overlay.remove();
-    const overlay = h('div', { class: 'modal-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Today’s Moon' },
+    const overlay = h('div', { class: 'modal-overlay', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Today’s stars' },
       h('div', { class: 'card notice-modal astro-pop' },
-        h('div', { class: 'notice-ico' + (c.bad ? ' warn' : ' good') }, icon(c.bad ? 'moon-stars' : 'sun')),
-        h('h2', null, c.bad ? 'Go gently today' : 'All clear today'),
-        h('ul', { class: 'astro-pop-list' }, c.tl.map(s => h('li', { class: s.hits.length ? 'bad' : 'good' },
-          h('b', null, `Moon in ${C.RASI[s.sign]}`), ` (${C.RASI_EN[s.sign]}) ${whenText(s, new Date(), c.d1)}`,
-          h('span', null, s.hits.length ? s.hits.map(hitText).join(' · ') : 'Clear for both of you')))),
-        h('p', { class: 'astro-pop-advice' }, c.advice),
-        c.chandraLine ? h('p', { class: 'astro-pop-chandra' }, c.chandraLine) : null,
-        c.next ? h('p', { class: 'sub' }, `Next clear stretch for both: ${dayFmt(c.next.start)}, ${timeFmt(c.next.start)}`) : null,
+        h('div', { class: 'notice-ico ' + (cls === 'good' ? 'good' : cls === 'bad' ? 'warn' : 'mixed') }, icon(cls === 'good' ? 'sun' : 'moon-stars')),
+        h('h2', null, cls === 'good' ? 'A good day for you both' : cls === 'bad' ? 'Go gently today' : 'A mixed day'),
+        h('p', { class: 'sub astro-pop-moon' }, `Moon in ${chain(info.moon, s => C.RASI[s.sign], d0, d1)} · ${chain(info.nak, s => C.NAK[s.nak], d0, d1)}`),
+        h('div', { class: 'astro-pop-people' }, rs.map(r => h('div', { class: 'astro-pop-person ' + r.rating },
+          h('div', { class: 'astro-pop-head' }, h('b', null, who(r.uid)), pill(r)),
+          h('ul', null, r.tips.slice(1).map(t => h('li', null, t)))))),
+        h('p', { class: 'astro-pop-advice' }, coupleLine(rs)),
+        info.kalam ? h('p', { class: 'sub' }, `${kalamText(info.kalam)} (${info.city}): avoid starting important work then.`) : null,
         h('div', { class: 'notice-actions' },
-          h('button', { class: 'btn ghost', onclick: () => { close(); switchTab('astro'); } }, 'See charts'),
+          h('button', { class: 'btn ghost', onclick: () => { close(); switchTab('astro'); } }, 'Full reading'),
           h('button', { class: 'btn primary', onclick: close }, 'Got it'))));
     document.body.append(overlay);
   }
@@ -324,40 +420,58 @@ const Astro = (() => {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { schedulePopup(); if (S.tab === 'log') banner(); } });
 
   /* ---------- member view ---------- */
+  function personDay(r, d0, d1) {
+    return h('div', { class: 'card astro-day ' + r.rating },
+      h('div', { class: 'card-head' }, h('h2', null, r.uid === S.user?.uid ? `You (${r.name})` : r.name), pill(r)),
+      h('ul', { class: 'astro-tips' }, r.tips.map(t => h('li', null, t))),
+      h('dl', { class: 'astro-facts' },
+        h('dt', null, 'Moon'), h('dd', null, r.moonSegs.map(s => {
+          const hit = r.moonHits.find(x => x.start.getTime() === s.start.getTime());
+          return h('span', { class: 'astro-seg ' + (hit ? 'bad' : 'good') }, `${C.RASI[s.sign]} ${span(s, d0, d1)}`,
+            hit ? ` (${hit.why.map(C.label).join(', ')})` : ' (good)');
+        })),
+        h('dt', null, 'Tara'), h('dd', null, r.nakSegs.map(s => h('span', { class: 'astro-seg ' + (s.tara.kind === 'bad' ? 'bad' : s.tara.kind === 'good' ? 'good' : 'mixed') },
+          `${s.tara.name} (${C.NAK[s.nak]}) ${span(s, d0, d1)}`)))),
+      h('h3', { class: 'astro-h3' }, 'Planets now (from your rasi)'),
+      h('div', { class: 'astro-chips' }, r.g.list.map(x => h('span', { class: 'astro-chip ' + (x.good ? 'good' : 'bad'), title: `${PL[x.ab]} in ${C.RASI[x.sign]}, ${C.ordinal(x.house)} from rasi` },
+        `${PL[x.ab]} ${C.ordinal(x.house)}${x.retro ? ' ®' : ''}`))),
+      r.g.sani ? h('p', { class: 'astro-sani' }, icon('alert-circle'), ' ', r.g.sani) : null,
+      h('ul', { class: 'astro-tips season' }, r.season.map(t => h('li', null, t))));
+  }
+
   async function renderMember(body) {
     if (!pair) return fill(body, h('div', { class: 'empty' }, icon('moon-stars'), h('p', null, 'No charts yet. The admin links two people and adds their birth details.')));
-    fill(body, h('p', { class: 'sub' }, 'Working out the charts…'));
+    fill(body, h('p', { class: 'sub' }, 'Working out today’s reading…'));
     let A;
     try { A = await loadLib(); } catch (err) { return fill(body, h('p', { class: 'sub err' }, err.message)); }
-    const now = new Date(), nowSign = C.signOf(C.moonLon(A, now)), moon = C.moonLon(A, now);
-    const segNow = C.moonSegments(A, now, new Date(now.getTime() + 3 * 864e5))[0];
-    const d0 = startOfDay(now), week = timeline(A, d0, new Date(d0.getTime() + 7 * 864e5));
+    const now = new Date(), nowSign = C.signOf(C.moonLon(A, now)), [d0, d1] = today();
+    const info = dayInfo(A, d0), me = S.user?.uid;
+    const rs = pair.members.map(u => reading(A, u, d0)).sort((a, b) => (a.uid === me ? -1 : b.uid === me ? 1 : 0));
+    const k = info.kalam;
 
-    const moonCard = h('div', { class: 'card astro-today' },
-      h('div', { class: 'card-head' }, h('h2', null, icon('moon'), ' Moon now')),
-      h('p', { class: 'astro-big' }, `${C.RASI[nowSign]} `, h('span', { class: 'muted' }, `(${C.RASI_EN[nowSign]})`)),
-      h('p', { class: 'sub' }, `${C.NAK[Math.floor(moon / (360 / 27))]} nakshatra · moves to ${C.RASI[(nowSign + 1) % 12]} on ${dayFmt(segNow.end)}, ${timeFmt(segNow.end)}`));
+    const todayCard = h('div', { class: 'card astro-today' },
+      h('div', { class: 'card-head' }, h('h2', null, icon('calendar-event'), ' ', now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' }))),
+      h('dl', { class: 'astro-facts' },
+        h('dt', null, 'Moon'), h('dd', null, chain(info.moon, s => C.RASI[s.sign], d0, d1)),
+        h('dt', null, 'Nakshatra'), h('dd', null, chain(info.nak, s => C.NAK[s.nak], d0, d1)),
+        h('dt', null, 'Tithi'), h('dd', null, chain(info.tithi, s => C.tithiName(s.tithi), d0, d1)),
+        k ? [h('dt', null, 'Sun'), h('dd', null, `rises ${timeFmt(k.sunrise)}, sets ${timeFmt(k.sunset)}`),
+          h('dt', null, 'Rahu kalam'), h('dd', null, `${timeFmt(k.rahu[0])} – ${timeFmt(k.rahu[1])}`),
+          h('dt', null, 'Yamagandam'), h('dd', null, `${timeFmt(k.yama[0])} – ${timeFmt(k.yama[1])}`),
+          h('dt', null, 'Kuligai'), h('dd', null, `${timeFmt(k.kuli[0])} – ${timeFmt(k.kuli[1])}`)] : null),
+      k ? h('p', { class: 'sub' }, `Times for ${info.city}. Avoid starting important work in Rahu kalam and Yamagandam.`) : null);
 
-    const watchCard = h('div', { class: 'card astro-watch' },
-      h('div', { class: 'card-head' }, h('h2', null, 'Moon timeline · next 7 days')),
-      h('p', { class: 'sub' }, h('span', { class: 'astro-key bad' }), ' Moon in the 1st, 7th or 8th from a rasi or lagna of either of you · ',
-        h('span', { class: 'astro-key good' }), ' clear for both'),
-      h('ul', { class: 'astro-list' }, week.map(s => {
-        const active = s.start <= now && s.end > now;
-        return h('li', { class: (s.hits.length ? 'bad' : 'good') + (active ? ' on' : '') },
-          h('div', { class: 'astro-li-head' },
-            h('span', { class: 'astro-when' }, sameDay(s.start, s.end)
-              ? `${dayFmt(s.start)}, ${timeFmt(s.start)} – ${timeFmt(s.end)}`
-              : `${dayFmt(s.start)} ${timeFmt(s.start)} → ${dayFmt(s.end)} ${timeFmt(s.end)}`),
-            active ? h('span', { class: 'pill' }, 'now') : null),
-          h('b', null, `Moon in ${C.RASI[s.sign]}`),
-          s.hits.length ? s.hits.map(x => h('span', { class: 'astro-hit' }, hitText(x))) : h('span', { class: 'astro-hit' }, 'Good for both of you'));
-      })));
+    const coupleCard = h('div', { class: 'card astro-couple' },
+      h('div', { class: 'card-head' }, h('h2', null, icon('heart'), ' Together today')),
+      h('div', { class: 'astro-couple-rates' }, rs.map(r => h('div', null, h('b', null, who(r.uid)), pill(r)))),
+      h('p', { class: 'astro-pop-advice' }, coupleLine(rs)));
 
     fill(body,
-      h('div', { class: 'astro-top' }, moonCard, watchCard),
-      h('div', { class: 'astro-charts' }, pair.members.map(uid => chartCard(A, uid, nowSign))),
-      h('p', { class: 'sub astro-note' }, 'Sidereal positions with Lahiri ayanamsa, mean Rahu/Ketu. Times are in your device’s time zone.'));
+      h('div', { class: 'astro-top' }, todayCard, h('div', { class: 'astro-stack' }, coupleCard)),
+      h('div', { class: 'astro-charts' }, rs.map(r => personDay(r, d0, d1))),
+      h('h2', { class: 'astro-section' }, 'Birth charts'),
+      h('div', { class: 'astro-charts' }, rs.map(r => chartCard(A, r.uid, nowSign))),
+      h('p', { class: 'sub astro-note' }, 'Sidereal positions with Lahiri ayanamsa, mean Rahu/Ketu. The day’s rating comes from the Moon (1st, 7th or 8th from rasi or lagna) and Tara balam during waking hours; the other planets are counted from the birth rasi and shape the advice. Times are in your device’s time zone.'));
   }
 
   /* ---------- admin view ---------- */
@@ -532,7 +646,7 @@ const Astro = (() => {
       const admin = S.user?.role === 'admin';
       document.getElementById('astroSub').textContent = admin
         ? 'Link two people and add their birth details. Only they see their charts and Moon alerts.'
-        : 'Both your charts, and when the Moon is in the 1st, 7th or 8th from a rasi or lagna.';
+        : 'How today looks for both of you, from the Moon, Tara balam and the other planets, plus your birth charts.';
       return admin ? renderAdmin(body) : renderMember(body);
     }
   };

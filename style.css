@@ -683,36 +683,16 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
 .astro-banner .btn { flex: none; }
 .astro-banner-ico { font-size: 1.4rem; line-height: 1; }
 
-.astro-top { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 18px; margin-bottom: 18px; }
+.astro-top { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 18px; margin-bottom: 18px; }
 .astro-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 18px; }
 .astro-big { font-size: 1.5rem; font-weight: 700; margin: 0; }
-.astro-card h2, .astro-today h2, .astro-watch h2 { margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: 6px; }
-.astro-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.astro-list li { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: .86rem; }
-.astro-list li { flex-direction: column; align-items: flex-start; border-left-width: 4px; }
-.astro-list li.bad { border-left-color: var(--pink); }
-.astro-list li.good { border-left-color: var(--good); }
-.astro-list li.bad.on { border-color: var(--pink); background: var(--pink-soft); color: var(--pink-ink); }
-.astro-list li.good.on { border-color: var(--good); background: color-mix(in srgb, var(--good) 12%, var(--surface)); }
-.astro-li-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; width: 100%; }
-.astro-when { font-weight: 600; }
-.astro-hit { color: inherit; opacity: .9; }
-.astro-list li.good .astro-hit { color: var(--good); }
-.astro-key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; vertical-align: middle; }
-.astro-key.bad { background: var(--pink); }
-.astro-key.good { background: var(--good); }
+.astro-card h2, .astro-today h2, .astro-couple h2, .astro-day h2 { margin: 0; font-size: 1.05rem; display: flex; align-items: center; gap: 6px; }
 
 /* 8 am pop-up */
 .notice-ico.good { background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: var(--good); }
 .astro-pop { text-align: left; }
 .astro-pop .notice-ico, .astro-pop h2 { text-align: center; }
-.astro-pop-list { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; font-size: .9rem; }
-.astro-pop-list li { border-left: 4px solid; padding: 6px 10px; border-radius: 8px; background: var(--surface-2); }
-.astro-pop-list li.bad { border-color: var(--pink); }
-.astro-pop-list li.good { border-color: var(--good); }
-.astro-pop-list li span { display: block; color: var(--ink-2); }
 .notice-modal .astro-pop-advice { color: var(--ink); font-weight: 600; }
-.notice-modal .astro-pop-chandra { margin-top: 8px; color: var(--pink); font-size: .88rem; }
 .astro-pop .sub { margin-top: 8px; }
 .astro-note { margin-top: 14px; }
 
@@ -757,3 +737,44 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
   .astro-coords { grid-template-columns: 1fr 1fr; }
   .astro-grid { grid-template-rows: repeat(4, minmax(58px, auto)); }
 }
+
+/* Astrology daily reading */
+.astro-banner.mixed { background: color-mix(in srgb, var(--warn) 14%, var(--surface)); color: var(--ink); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+.astro-rate { font-weight: 700; }
+.astro-rate.good { background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: var(--good); }
+.astro-rate.mixed { background: color-mix(in srgb, var(--warn) 20%, var(--surface)); color: color-mix(in srgb, var(--warn) 70%, var(--ink)); }
+.astro-rate.bad { background: var(--pink-soft); color: var(--pink-ink); }
+.astro-day { border-top: 4px solid var(--line); }
+.astro-day.good { border-top-color: var(--good); }
+.astro-day.mixed { border-top-color: var(--warn); }
+.astro-day.bad { border-top-color: var(--pink); }
+.astro-day .card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.astro-tips { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 6px; font-size: .9rem; line-height: 1.45; }
+.astro-tips li:first-child { font-weight: 600; }
+.astro-tips.season li:first-child { font-weight: 400; }
+.astro-tips.season { color: var(--ink-2); }
+.astro-seg { display: block; font-weight: 600; }
+.astro-seg.good { color: var(--good); }
+.astro-seg.bad { color: var(--pink); }
+.astro-seg.mixed { color: color-mix(in srgb, var(--warn) 70%, var(--ink)); }
+.astro-h3 { font-size: .86rem; margin: 16px 0 8px; color: var(--ink-2); }
+.astro-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.astro-chip { font-size: .78rem; font-weight: 600; padding: 3px 9px; border-radius: 999px; border: 1px solid; }
+.astro-chip.good { color: var(--good); border-color: color-mix(in srgb, var(--good) 45%, transparent); background: color-mix(in srgb, var(--good) 10%, var(--surface)); }
+.astro-chip.bad { color: var(--ink-3); border-color: var(--line); }
+.astro-sani { margin: 10px 0 0; font-size: .86rem; font-weight: 600; color: var(--pink); display: flex; align-items: center; gap: 4px; }
+.astro-couple-rates { display: grid; gap: 8px; margin-top: 10px; }
+.astro-couple-rates > div { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.astro-couple .astro-pop-advice { margin: 12px 0 0; font-weight: 600; }
+.astro-section { font-size: 1.05rem; margin: 26px 0 12px; }
+.astro-top + .astro-charts { margin-top: 0; }
+.notice-ico.mixed { background: color-mix(in srgb, var(--warn) 18%, var(--surface)); color: var(--warn); }
+.astro-pop-moon { text-align: center; margin-top: 4px !important; }
+.astro-pop-people { display: grid; gap: 10px; margin: 14px 0 12px; }
+.astro-pop-person { border-left: 4px solid var(--line); background: var(--surface-2); border-radius: 8px; padding: 8px 10px; }
+.astro-pop-person.good { border-left-color: var(--good); }
+.astro-pop-person.mixed { border-left-color: var(--warn); }
+.astro-pop-person.bad { border-left-color: var(--pink); }
+.astro-pop-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.astro-pop-person ul { margin: 6px 0 0; padding-left: 16px; font-size: .84rem; color: var(--ink-2); display: grid; gap: 3px; }
+.astro-pop { max-height: calc(100vh - 32px); overflow-y: auto; }

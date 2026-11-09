@@ -128,9 +128,14 @@ When you change `Code.gs` later: **Deploy → Manage deployments → ✏️ Edit
 5. **Astrology** (only for people the admin has linked, and for the admin):
    - The admin opens **Astrology**, picks two members, enters each one's birth date, time and place (city search, or coordinates by hand) → **Link and save**. A person can be in one pair at a time. **Edit**, **Charts** and **Unlink** are in the *Linked couples* list.
    - The two people then get an **Astrology** tab with both South Indian rasi charts (lagna, rasi, nakshatra, planets, and where the Moon is today) and a 7-day Moon watch.
-   - The **Moon timeline** lists every Moon stretch for the next 7 days: **red** when the Moon is in the 1st, 7th or 8th house from either person's rasi or lagna (8th from rasi is Chandrashtamam), **green** when it is clear for both.
-   - The Today banner shows the same for today: red *Moon watch today* or green *All clear today*.
-   - The first time each person opens the app at or after **8 am**, a pop-up gives the day's Moon, who it affects and a short piece of advice (once a day). The site cannot notify you while it is closed, so it appears when you next open it.
+   - Each day the Astrology tab gives both people a **Good / Mixed / Careful** rating with advice:
+     - **Moon** in the 1st, 7th or 8th from either person's rasi or lagna is a caution (8th from rasi = Chandrashtamam, always *Careful*).
+     - **Tara balam**: today's nakshatra counted from the birth nakshatra (Sampat, Kshema, Sadhana, Mitra, Parama Mitra are good; Vipat, Pratyak, Naidhana are not; Janma is mixed).
+     - The Moon and Tara decide the rating, using waking hours (6 am to 10 pm).
+     - **Gocharam** of Suriyan, Sevvai, Budhan, Guru, Sukran, Sani, Rahu and Ketu, counted from the birth rasi with the traditional good houses, plus Sade Sati, Ashtama Sani, Ardhashtama Sani and Guru balam. These are the background and add advice, but don't change the rating.
+     - The day's **tithi, nakshatra, sunrise/sunset, Rahu kalam, Yamagandam and Kuligai** (for the viewer's birth place), and a line for the couple together.
+   - The Today banner shows both ratings, the Moon and Rahu kalam (green, amber or red).
+   - The first time each person opens the app at or after **8 am**, a pop-up gives both ratings, the Moon and Tara advice, the couple line and Rahu kalam (once a day). The site cannot notify you while it is closed, so it appears when you next open it.
    - Charts use sidereal positions with the Lahiri ayanamsa and mean Rahu/Ketu, calculated in the browser with Astronomy Engine (loaded from jsDelivr only when needed). City search uses the free Open-Meteo geocoding service.
 
 **Try it first:** Settings → *Load demo data* shows every screen with made-up numbers. Nothing is sent anywhere.

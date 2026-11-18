@@ -13,5 +13,5 @@ window.APP_CONFIG = {
   },
   // Phone notifications: Firebase console -> Project settings -> Cloud Messaging -> Web Push certificates
   // -> Generate key pair, then paste the "Key pair" value here. It is public, not a secret.
-  vapidKey: ''
+  vapidKey: 'BKYql_1qGpkMlzp6daGS00gGToBDhcFR2OCpJDqvXEIsMx8N6nRfjQ6SFcqafhatIvyuGIJDv4c7UnGIR8QuVr8'
 };

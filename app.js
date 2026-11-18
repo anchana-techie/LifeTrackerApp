@@ -2731,11 +2731,10 @@ async function doNotify(e) {
     const people = `${n} ${n === 1 ? 'person' : 'people'}`;
     if (when) toast(`Scheduled for ${people}: ${when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`);
     else {
+      // always ask the script: it knows which phones have notifications on, the browser's config does not matter here
       let phones = '';
-      if (window.APP_CONFIG?.vapidKey) {
-        try { const r = await api('push', { ids }); phones = r.phones ? ` · ${plural(r.phones, 'phone')} notified` : ' · no phones have notifications on'; }
-        catch (err) { phones = ''; toast(`Sent to ${people}, but the phone notification failed: ${err.message}`, true); return; }
-      }
+      try { const r = await api('push', { ids }); phones = r.phones ? ` · ${plural(r.phones, 'phone')} notified` : ' · no phones have notifications on'; }
+      catch (err) { toast(`Sent to ${people}, but the phone notification failed: ${err.message}`, true); return; }
       toast(`Sent to ${people}${phones}`);
     }
   } catch (err) { problem(err.message); }

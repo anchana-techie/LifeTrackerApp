@@ -22,7 +22,7 @@ var MORNING_ = [
   ['Today counts, {name} \u2728', 'Open Life Tracker, see your day and start ticking things off.']
 ];
 
-/** Time trigger, daily at about 9 am India time (created by setupPush). Admins are skipped. */
+/** Time trigger, daily at about 9 am India time (created by setupMorning). Admins are skipped. */
 function morningPush() {
   var rows = ownerQuery_({ from: [{ collectionId: 'push_tokens' }], limit: 500 });
   if (!rows.length) return;

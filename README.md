@@ -93,6 +93,7 @@ Lets the admin's messages reach people's phones as real notifications, even when
 3. Pick **setupPush** in the function list → **Run** → allow the new permissions. This also starts a job every 5 minutes for scheduled messages.
 4. **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy.**
 5. Publish the updated `firestore.rules` (new `push_tokens` table).
+Everyone with notifications on also gets a good-morning nudge at about 9 am (India time) that opens Today.
 6. Each person: **Settings → Phone notifications → Turn on notifications**. On iPhone this only works in the installed app (iOS 16.4 or later): install it first, open it from the home screen, then turn notifications on.
 
 The script must be owned by an account that is an owner of the Firebase project (it sends with that login). If sending fails with "not authorised", run **setupPush** again.

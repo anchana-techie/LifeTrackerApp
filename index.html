@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0F6E56">
   <title>Life Tracker</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Life Tracker">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="description" content="Log daily dos, habits, products, period and weight to a Google Sheet, and see in-depth analysis.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%231D9E75'/><path d='M28 52l14 14 30-32' stroke='white' stroke-width='10' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
   <script>
@@ -15,16 +21,17 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons-outline.min.css">
-  <link rel="stylesheet" href="style.css?v=20261109c">
+  <link rel="stylesheet" href="style.css?v=20261118a">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" defer></script>
+  <script src="pwa.js?v=20261118a" defer></script>
   <script src="config.js" defer></script>
-  <script src="account.js?v=20261109b" defer></script>
-  <script src="app.js?v=20261109b" defer></script>
-  <script src="group.js?v=20261109b" defer></script>
-  <script src="astro.js?v=20261109c" defer></script>
+  <script src="account.js?v=20261118a" defer></script>
+  <script src="app.js?v=20261118a" defer></script>
+  <script src="group.js?v=20261118a" defer></script>
+  <script src="astro.js?v=20261118a" defer></script>
 </head>
 <body>
 <!-- SIGN IN / REGISTER -->
@@ -330,6 +337,10 @@
               <div class="row-actions"><button class="btn ghost danger" type="submit"><i class="ti ti-trash" aria-hidden="true"></i> Delete my account</button></div>
             </form>
             <p id="delStatus" class="sub"></p>
+          </div>
+          <div class="card settings">
+            <h2>Install app</h2>
+            <div id="installBox"><p class="sub">Checking…</p></div>
           </div>
           <div class="card settings">
             <h2>Body &amp; water</h2>

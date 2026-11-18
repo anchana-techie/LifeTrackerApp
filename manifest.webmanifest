@@ -1,0 +1,22 @@
+{
+  "name": "Life Tracker",
+  "short_name": "Tracker",
+  "description": "Log daily dos, habits, products, period and weight to a Google Sheet, and see in-depth analysis.",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EEF3F1",
+  "theme_color": "#0F6E56",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Today", "url": "./?tab=log", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Buy list", "url": "./?tab=buy", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Astrology", "url": "./?tab=astro", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}

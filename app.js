@@ -330,6 +330,8 @@ function switchTab(tab) {
   if (S.data || S.groupMode || ['upload', 'files', 'admin', 'settings', 'astro'].includes(tab)) renderTab();
   if (tab === 'log') astro()?.banner();
 }
+// pwa.js handles home-screen shortcuts (./?tab=buy); fall back quietly if it did not load
+const firstTab = fallback => (typeof startTab === 'function' ? startTab(fallback) : fallback);
 // astro.js loads after this file; reach it lazily so a failed load never breaks the app
 const astro = () => (typeof Astro !== 'undefined' ? Astro : null);
 function renderAll() { renderTab(); }
@@ -2249,13 +2251,13 @@ async function onAuthChange(profile, msg) {
   if (admin) {
     try { S.members = (await Account.listMembers()).filter(m => !m.deleted); await loadMemberYears(); } catch (err) { toast(err.message, true); }
     await enterGroup();
-    switchTab('log');
+    switchTab(firstTab('log'));
     setLoader(false);
     return;
   }
   fillUserSelect();
   await refreshYears();
-  if (S.year) { await loadSheet(); switchTab('log'); } else { clearSheet(); switchTab('upload'); }
+  if (S.year) { await loadSheet(); switchTab(firstTab('log')); } else { clearSheet(); switchTab('upload'); }
   setLoader(false);
   // admin messages come first; the upload notice follows once they are dismissed (so the pop ups never overlap).
   // The wait is capped so a slow connection never holds the upload notice back.

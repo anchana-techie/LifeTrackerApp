@@ -2,6 +2,9 @@
 
 Newest first. Add a line here with every feature change.
 
+## 2026-11-18
+- **Added** Web app (PWA): `manifest.webmanifest`, app icons (`icons/`), iPhone home-screen tags, and a service worker (`sw.js`). The site can be installed to the phone's home screen and opens full screen. The app's own files load network-first (falling back to the saved copy after 4 s or offline); CDN libraries are saved on the phone; Apps Script, Firestore, sign-in, Groq and city search are never cached. A **New version available → Reload** bar appears after a release, an offline note shows when there is no connection, and **Settings → Install app** gives an install button (Android/desktop Chrome) or Add to Home Screen steps (iPhone). Home-screen shortcuts open Today, Buy list or Astrology (`./?tab=`). No `Code.gs` or Firestore change. The previous version is kept on the branch `backup-before-webapp`.
+
 ## 2026-11-09
 - **Changed** Astrology: replaced the 7-day Moon timeline with a daily reading for both people. Each gets a Good / Mixed / Careful rating from the Moon (1st/7th/8th from rasi or lagna; Chandrashtamam is always Careful) and Tara balam during waking hours, plus advice. Gocharam of the other planets from the birth rasi (with Sade Sati, Ashtama/Ardhashtama Sani and Guru balam) shapes the advice. The tab also shows today's tithi, nakshatra, sunrise/sunset, Rahu kalam, Yamagandam and Kuligai, and a line for the couple. The Today banner and the 8 am pop-up now show the same reading. Times checked against the Swiss Ephemeris.
 - **Added** Astrology: a daily pop-up for linked couples the first time each person opens the app at or after 8 am (once a day per browser, after any admin message or upload pop-up). It lists today's Moon stretches, who is affected and why, a fixed advice line (rotating each day; separate wording for you, your partner, both, or all clear), a Chandrashtamam note when it applies, and the next stretch that is clear for both.

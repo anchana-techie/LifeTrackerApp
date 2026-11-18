@@ -778,3 +778,11 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
 .astro-pop-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .astro-pop-person ul { margin: 6px 0 0; padding-left: 16px; font-size: .84rem; color: var(--ink-2); display: grid; gap: 3px; }
 .astro-pop { max-height: calc(100vh - 32px); overflow-y: auto; }
+
+/* Web app (pwa.js) */
+.pwa-bar { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 2100; display: flex; align-items: center; gap: 12px;
+  background: var(--ink); color: var(--surface); border-radius: 999px; padding: 8px 8px 8px 16px; font-size: .88rem; font-weight: 600; box-shadow: 0 8px 24px rgba(0,0,0,.18); max-width: calc(100vw - 32px); }
+.pwa-bar.offline { padding: 8px 16px; background: var(--warn); color: #1c1c1c; font-weight: 600; }
+@media (max-width: 720px) { .pwa-bar { bottom: calc(84px + env(safe-area-inset-bottom)); } }
+html.standalone, html.standalone body { overscroll-behavior-y: none; }
+html.standalone body { -webkit-tap-highlight-color: transparent; }

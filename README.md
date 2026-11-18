@@ -18,7 +18,8 @@ Browser (GitHub Pages)
 |---|---|
 | `index.html`, `style.css`, `app.js` | The website. |
 | `account.js` | Firebase sign-in, registration, change password, Firestore reads. |
-| `astro.js` | Astrology for linked couples: rasi charts and the daily Moon watch, calculated in the browser. |
+| `astro.js` | Astrology for linked couples: rasi charts and the daily reading, calculated in the browser. |
+| `pwa.js`, `sw.js`, `manifest.webmanifest`, `icons/` | Web app: install to the home screen, quick start, offline page, update prompt. |
 | `config.js` | **You fill this in:** Apps Script URL + Firebase web config. |
 | `Code.gs`, `appsscript.json` | The Apps Script bridge (Drive upload + Sheet reads/writes). |
 | `firestore.rules` | Security rules — the rules are what stop people seeing each other's files. |
@@ -146,6 +147,20 @@ When you change `Code.gs` later: **Deploy → Manage deployments → ✏️ Edit
 A day with nothing ticked on a sheet is treated as **not logged**, not as "all missed", so forgetting to fill a day doesn't drag your percentages down. The heat map shows those days with a dashed outline.
 
 ---
+
+## Install on your phone
+
+Life Tracker is a web app: no APK or app store needed.
+
+- **Android (Chrome):** open the site, go to **Settings → Install app → Install app**. Or use Chrome's ⋮ menu → *Add to Home screen* / *Install app*.
+- **iPhone (Safari):** open the site in Safari, tap **Share** → **Add to Home Screen**. The home-screen app keeps its own sign-in, so sign in once more inside it.
+- Long-press the home-screen icon on Android for shortcuts to **Today**, **Buy list** and **Astrology**.
+- Opens full screen, starts faster (libraries are saved on the phone), and still opens offline. Saving and loading your sheet need a connection.
+- After a new version is pushed, the app shows **New version available → Reload**.
+- For maintainers: bump `VERSION` in `sw.js` (and the `?v=` numbers in `index.html`) with each release.
+
+### Going back to the version before the web app
+The code as it was before this change is saved on the branch **`backup-before-webapp`**. To restore it, revert the web-app commit on `main` (`git revert <commit>`) or reset `main` to that branch, then push. Existing installs remove the service worker on their own only if `sw.js` is replaced by one that unregisters itself, so a full revert should keep a small `sw.js` that does that (ask Claude: "revert the web app").
 
 ## Sheet layout the script expects
 Sheets are found by name prefix, so the year in the name can change:

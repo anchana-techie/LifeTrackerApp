@@ -1330,7 +1330,12 @@ function pushDocs_(docs) {
       var code = res.getResponseCode(), text = res.getContentText();
       if (code === 200) { phones++; return; }
       if (code === 404 || (code === 400 && /UNREGISTERED|registration token/i.test(text))) { ownerDelete_(meta[i]); return; }
-      if (code === 401 || code === 403) throw new Error('Phone notifications are not authorised. In the script editor, run setupPush once (see README).');
+      if (code === 401 || code === 403) {
+        var why = '';
+        try { why = (JSON.parse(text).error || {}).message || ''; } catch (err) { why = text.slice(0, 200); }
+        throw new Error('Firebase refused the notification (' + code + '): ' + why.slice(0, 300) +
+          ' Check that the Firebase Cloud Messaging API is enabled and that setupPush was run (README step 3b).');
+      }
       console.warn('FCM ' + code + ': ' + text.slice(0, 300));
     });
   }

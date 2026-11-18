@@ -1277,6 +1277,22 @@ function setupPush() {
   Logger.log('Phone notifications are set up. Scheduled messages are pushed within 5 minutes of their time.');
 }
 
+/** Run from the editor to test sending: logs the permissions the script's login has, then asks Firebase to
+ *  check (without sending) a notification to the newest registered phone. Share the log if sending fails. */
+function checkPush() {
+  var tok = ScriptApp.getOAuthToken();
+  var info = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(tok), { muteHttpExceptions: true });
+  var scopes = (JSON.parse(info.getContentText() || '{}').scope || '').split(' ');
+  Logger.log('Permissions: ' + scopes.map(function (x) { return x.replace('https://www.googleapis.com/auth/', ''); }).join(', '));
+  var rows = ownerQuery_({ from: [{ collectionId: 'push_tokens' }], limit: 20 });
+  Logger.log('Phones with notifications on: ' + rows.length + rows.map(function (r) { return '\n  ' + fsStr_(r, 'email') + ' · ' + fsStr_(r, 'device'); }).join(''));
+  if (!rows.length) return;
+  var req = fcmRequest_(fsStr_(rows[0], 'token'), { title: 'Test', body: 'Test' });
+  var body = JSON.parse(req.payload); body.validate_only = true; req.payload = JSON.stringify(body);
+  var res = UrlFetchApp.fetch(req.url, req);
+  Logger.log('Firebase test (not sent): ' + res.getResponseCode() + ' ' + res.getContentText().slice(0, 400));
+}
+
 /** Admin only: push the given message ids (those already due). Returns how many people and phones were reached. */
 function pushMessages_(auth, req) {
   if (getMember_(auth).role !== 'admin') throw new Error('You do not have access to that.');

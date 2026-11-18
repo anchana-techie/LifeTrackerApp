@@ -15,7 +15,8 @@
     "https://www.googleapis.com/auth/script.external_request",
     "https://www.googleapis.com/auth/datastore",
     "https://www.googleapis.com/auth/firebase.messaging",
-    "https://www.googleapis.com/auth/script.scriptapp"
+    "https://www.googleapis.com/auth/script.scriptapp",
+    "https://www.googleapis.com/auth/cloud-platform"
   ],
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",

@@ -21,7 +21,7 @@ Browser (GitHub Pages)
 | `astro.js` | Astrology for linked couples: rasi charts and the daily reading, calculated in the browser. |
 | `pwa.js`, `sw.js`, `manifest.webmanifest`, `icons/` | Web app: install to the home screen, quick start, offline page, update prompt. |
 | `config.js` | **You fill this in:** Apps Script URL + Firebase web config. |
-| `Code.gs`, `appsscript.json` | The Apps Script bridge (Drive upload + Sheet reads/writes). |
+| `Code.gs`, `Morning.gs`, `appsscript.json` | The Apps Script bridge (Drive upload + Sheet reads/writes). |
 | `firestore.rules` | Security rules — the rules are what stop people seeing each other's files. |
 
 ## How it works
@@ -93,7 +93,7 @@ Lets the admin's messages reach people's phones as real notifications, even when
 3. Pick **setupPush** in the function list → **Run** → allow the new permissions. This also starts a job every 5 minutes for scheduled messages.
 4. **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy.**
 5. Publish the updated `firestore.rules` (new `push_tokens` table).
-Everyone with notifications on also gets a good-morning nudge at about 9 am (India time) that opens Today.
+For a good-morning nudge at about 9 am (India time) for everyone with notifications on: in the Apps Script editor click **+ → Script**, name it `Morning`, paste the repo's `Morning.gs`, save, and run **setupMorning** once. Run **morningPush** to send one straight away as a test.
 6. Each person: **Settings → Phone notifications → Turn on notifications**. On iPhone this only works in the installed app (iOS 16.4 or later): install it first, open it from the home screen, then turn notifications on.
 
 The script must be owned by an account that is an owner of the Firebase project (it sends with that login). If sending fails with "not authorised", run **setupPush** again.

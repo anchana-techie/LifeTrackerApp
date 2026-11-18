@@ -1273,10 +1273,8 @@ function setOneTime_(ss, tz, product, date, on) {
 function setupPush() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'pushDue') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('pushDue').timeBased().everyMinutes(5).create();
-  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'morningPush') ScriptApp.deleteTrigger(t); });
-  ScriptApp.newTrigger('morningPush').timeBased().atHour(9).nearMinute(0).everyDays(1).inTimezone('Asia/Kolkata').create();
   ownerGet_('members?pageSize=1');   // fails early here if the Firebase project id is wrong
-  Logger.log('Phone notifications are set up. Scheduled messages are pushed within 5 minutes of their time, and everyone gets a good-morning nudge at about 9 am.');
+  Logger.log('Phone notifications are set up. Scheduled messages are pushed within 5 minutes of their time.');
 }
 
 /** Run from the editor to test sending: logs the permissions the script's login has, then asks Firebase to
@@ -1293,44 +1291,6 @@ function checkPush() {
   var body = JSON.parse(req.payload); body.validate_only = true; req.payload = JSON.stringify(body);
   var res = UrlFetchApp.fetch(req.url, req);
   Logger.log('Firebase test (not sent): ' + res.getResponseCode() + ' ' + res.getContentText().slice(0, 400));
-}
-
-/* ---------- 9 am nudge for everyone with notifications on ---------- */
-var MORNING_ = [
-  ['Good morning, {name} \u2600\ufe0f', 'Start your day: tick off your first Daily Do in Life Tracker.'],
-  ['Rise and track, {name}', 'A quick log now keeps your streak going. Water, habits, mood: tap to start.'],
-  ['New day, {name} \ud83c\udf31', 'Plan it in a minute: open Today and pick what you\u2019ll tick off first.'],
-  ['Morning check-in, {name}', 'Did you sleep well? Log it, then set up today\u2019s Daily Dos.'],
-  ['Hello {name} \ud83d\udc4b', 'Small steps add up. Track one thing right now and keep the momentum.'],
-  ['Good morning, {name}', 'First glass of water? Log it in Life Tracker and start the day strong.'],
-  ['Today counts, {name} \u2728', 'Open Life Tracker, see your day and start ticking things off.']
-];
-
-/** Time trigger, daily at about 9 am India time (created by setupPush). Admins are skipped. */
-function morningPush() {
-  var rows = ownerQuery_({ from: [{ collectionId: 'push_tokens' }], limit: 500 });
-  if (!rows.length) return;
-  var members = {};
-  ownerQuery_({ from: [{ collectionId: 'members' }], limit: 500 }).forEach(function (m) {
-    members[m.name.split('/').pop()] = { name: fsStr_(m, 'userName'), role: fsStr_(m, 'role'), deleted: fsBool_(m, 'deleted') };
-  });
-  var day = Math.floor((Date.now() + 5.5 * 3600e3) / 864e5), pick = MORNING_[day % MORNING_.length];
-  var sends = [], names = [];
-  rows.forEach(function (t) {
-    var m = members[fsStr_(t, 'uid')];
-    if (!m || m.role === 'admin' || m.deleted) return;
-    var first = (m.name || 'there').split(/\s+/)[0];
-    sends.push(fcmRequest_(fsStr_(t, 'token'), { title: pick[0].replace('{name}', first), body: pick[1], tag: 'morning', url: './?tab=log' }));
-    names.push(t.name);
-  });
-  var ok = 0;
-  if (sends.length) UrlFetchApp.fetchAll(sends).forEach(function (res, i) {
-    var code = res.getResponseCode(), text = res.getContentText();
-    if (code === 200) { ok++; return; }
-    if (code === 404 || (code === 400 && /UNREGISTERED|registration token/i.test(text))) { ownerDelete_(names[i]); return; }
-    console.warn('Morning push ' + code + ': ' + text.slice(0, 300));
-  });
-  Logger.log('Morning nudge sent to ' + ok + ' of ' + sends.length + ' phones.');
 }
 
 /** Admin only: push the given message ids (those already due). Returns how many people and phones were reached. */

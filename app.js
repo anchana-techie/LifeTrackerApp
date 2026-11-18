@@ -331,6 +331,7 @@ function switchTab(tab) {
   if (tab === 'log') astro()?.banner();
 }
 // pwa.js handles home-screen shortcuts (./?tab=buy); fall back quietly if it did not load
+const push = () => (typeof Push !== 'undefined' ? Push : null);
 const firstTab = fallback => (typeof startTab === 'function' ? startTab(fallback) : fallback);
 // astro.js loads after this file; reach it lazily so a failed load never breaks the app
 const astro = () => (typeof Astro !== 'undefined' ? Astro : null);
@@ -2248,6 +2249,7 @@ async function onAuthChange(profile, msg) {
   $$('.nav-btn').forEach(b => { if (['buy', 'files', 'tasks', 'timegen'].includes(b.dataset.tab)) b.hidden = admin; });
   S.members = []; S.memberYears = {};
   astro()?.onSignIn(profile);   // finds this person's linked pair, shows the Astrology tab and the Today banner
+  push()?.onSignIn(profile);    // refreshes this phone's notification token (pwa.js)
   if (admin) {
     try { S.members = (await Account.listMembers()).filter(m => !m.deleted); await loadMemberYears(); } catch (err) { toast(err.message, true); }
     await enterGroup();
@@ -2723,10 +2725,19 @@ async function doNotify(e) {
   }
   btn.disabled = true; st.textContent = 'Sending…';
   try {
-    await Account.sendMessage([...NF.selected], text, NF.icon, S.user.userName, when);
+    const ids = await Account.sendMessage([...NF.selected], text, NF.icon, S.user.userName, when);
     $('#notifyDate').value = ''; $('#notifyTime').value = ''; setWhenHint();
     $('#notifyText').value = ''; $('#notifyCount').textContent = '0 / 300'; st.textContent = '';
-    toast(when ? `Scheduled for ${n} ${n === 1 ? 'person' : 'people'}: ${when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : `Sent to ${n} ${n === 1 ? 'person' : 'people'}`);
+    const people = `${n} ${n === 1 ? 'person' : 'people'}`;
+    if (when) toast(`Scheduled for ${people}: ${when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`);
+    else {
+      let phones = '';
+      if (window.APP_CONFIG?.vapidKey) {
+        try { const r = await api('push', { ids }); phones = r.phones ? ` · ${plural(r.phones, 'phone')} notified` : ' · no phones have notifications on'; }
+        catch (err) { phones = ''; toast(`Sent to ${people}, but the phone notification failed: ${err.message}`, true); return; }
+      }
+      toast(`Sent to ${people}${phones}`);
+    }
   } catch (err) { problem(err.message); }
   finally { btn.disabled = false; }
 }
@@ -2773,7 +2784,7 @@ function stopWatchingMessages() {
 async function renderAdmin() {
   const memberBox = $('#memberList'), inviteBox = $('#inviteList');
   try {
-    const [members, invites] = await Promise.all([Account.listMembers(), Account.listInvites()]);
+    const [members, invites, pushOn] = await Promise.all([Account.listMembers(), Account.listInvites(), Account.pushUids()]);
     const years = await Promise.all(members.map(m => Account.listYears(m.uid)));
     S.members = members.filter(m => !m.deleted);   // deleted people are only listed below, never offered as a view
     S.memberYears = Object.fromEntries(members.map((m, i) => [m.uid, years[i]]));
@@ -2783,7 +2794,8 @@ async function renderAdmin() {
     if (prev) upSel.value = prev;
     const driveHref = l => (/^https:\/\/docs\.google\.com\//.test(l) ? l : null);
     fill(memberBox, ...members.map((m, i) => h('div', { class: 'row member' },
-      h('div', { class: 'who' }, h('b', null, m.userName), m.role === 'admin' ? h('span', { class: 'pill' }, 'admin') : null, m.deleted ? h('span', { class: 'pill bad' }, 'Deleted') : null, h('div', { class: 'muted' }, m.email)),
+      h('div', { class: 'who' }, h('b', null, m.userName), m.role === 'admin' ? h('span', { class: 'pill' }, 'admin') : null, m.deleted ? h('span', { class: 'pill bad' }, 'Deleted') : null,
+        pushOn.has(m.uid) ? h('span', { class: 'pill teal', title: 'Has phone notifications on' }, icon('bell'), 'phone') : null, h('div', { class: 'muted' }, m.email)),
       h('div', { class: 'years' }, m.role === 'admin' ? null : years[i].length
         ? years[i].map(r => h('span', { class: 'year-tag' }, r.year,
           driveHref(r.driveLink) ? h('a', { href: driveHref(r.driveLink), target: '_blank', rel: 'noopener', title: 'Open in Google Drive', 'aria-label': `Open ${r.year} in Google Drive` }, icon('external-link')) : null,
@@ -3503,7 +3515,11 @@ function init() {
     try { await Account.deleteAccount($('#delPw').value); e.target.reset(); st.textContent = ''; }
     catch (err) { st.textContent = '✗ ' + err.message; }
   });
-  $$('#signOutBtn, #topSignOut').forEach(b => b.addEventListener('click', () => { if (confirmDiscard()) Account.signOut(); }));
+  $$('#signOutBtn, #topSignOut').forEach(b => b.addEventListener('click', async () => {
+    if (!confirmDiscard()) return;
+    try { await push()?.beforeSignOut(); } catch { /* sign out anyway */ }
+    Account.signOut();
+  }));
   $('#uploadForm').addEventListener('submit', doUpload);
   $('#adminUploadForm').addEventListener('submit', doAdminUpload);
   buildNotifyIcons();

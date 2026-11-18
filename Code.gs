@@ -50,6 +50,9 @@ function doPost(e) {
     // the assistant only talks to Groq; it never opens the user's sheet, so it needs no file lookup or lock
     if (req.action === 'chat') return json_({ ok: true, data: chat_(auth, req) });
 
+    // phone notifications for admin messages that were just written to Firestore
+    if (req.action === 'push') return json_({ ok: true, data: pushMessages_(auth, req) });
+
     var lock = LockService.getScriptLock();
     lock.waitLock(20000);
     try {
@@ -1255,4 +1258,127 @@ function setOneTime_(ss, tz, product, date, on) {
   } else if (!on && row > 0) {
     sh.deleteRow(row);
   }
+}
+
+/* =========================================================
+ * Phone notifications (Firebase Cloud Messaging)
+ *
+ * Each phone that turned notifications on has a push_tokens row (written by the browser).
+ * When the admin sends a message, the browser asks this script to push it; scheduled messages are
+ * pushed by pushDue(), which runs every 5 minutes once setupPush() has been run.
+ * Sending uses the script owner's Google login (scope firebase.messaging), so no server key or paid plan.
+ * ======================================================= */
+
+/** Run once from the editor: authorises the new permission and starts the 5-minute job for scheduled messages. */
+function setupPush() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'pushDue') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('pushDue').timeBased().everyMinutes(5).create();
+  ownerGet_('members?pageSize=1');   // fails early here if the Firebase project id is wrong
+  Logger.log('Phone notifications are set up. Scheduled messages are pushed within 5 minutes of their time.');
+}
+
+/** Admin only: push the given message ids (those already due). Returns how many people and phones were reached. */
+function pushMessages_(auth, req) {
+  if (getMember_(auth).role !== 'admin') throw new Error('You do not have access to that.');
+  var ids = (req.ids || []).map(String).filter(function (id) { return /^[A-Za-z0-9]{1,40}$/.test(id); }).slice(0, 200);
+  var docs = ids.map(function (id) { return ownerGet_('messages/' + id); }).filter(Boolean);
+  return pushDocs_(docs.filter(function (d) { return isDue_(d) && !fsBool_(d, 'pushed'); }));
+}
+
+/** Time trigger: push scheduled messages whose time has come. */
+function pushDue() {
+  var now = new Date().toISOString();
+  var rows = ownerQuery_({
+    from: [{ collectionId: 'messages' }],
+    where: { fieldFilter: { field: { fieldPath: 'deliverAt' }, op: 'LESS_THAN_OR_EQUAL', value: { timestampValue: now } } },
+    limit: 200
+  });
+  pushDocs_(rows.filter(function (d) { return !fsBool_(d, 'pushed'); }));
+}
+
+function isDue_(doc) {
+  var f = doc.fields && doc.fields.deliverAt;
+  return !f || !f.timestampValue || new Date(f.timestampValue).getTime() <= Date.now() + 60000;
+}
+
+/** Sends each message to every phone registered for its email, marks it pushed, and drops dead tokens. */
+function pushDocs_(docs) {
+  if (!docs.length) return { messages: 0, phones: 0 };
+  var emails = {};
+  docs.forEach(function (d) { emails[fsStr_(d, 'email')] = true; });
+  var tokensByEmail = {};
+  Object.keys(emails).forEach(function (email) {
+    tokensByEmail[email] = ownerQuery_({
+      from: [{ collectionId: 'push_tokens' }],
+      where: { fieldFilter: { field: { fieldPath: 'email' }, op: 'EQUAL', value: { stringValue: email } } },
+      limit: 20
+    });
+  });
+  var sends = [], meta = [];
+  docs.forEach(function (d) {
+    var id = d.name.split('/').pop(), by = fsStr_(d, 'by') || 'admin';
+    (tokensByEmail[fsStr_(d, 'email')] || []).forEach(function (t) {
+      sends.push(fcmRequest_(fsStr_(t, 'token'), {
+        title: 'Message from ' + by, body: fsStr_(d, 'text').slice(0, 300), tag: 'msg-' + id, url: './'
+      }));
+      meta.push(t.name);
+    });
+  });
+  var phones = 0;
+  if (sends.length) {
+    UrlFetchApp.fetchAll(sends).forEach(function (res, i) {
+      var code = res.getResponseCode(), text = res.getContentText();
+      if (code === 200) { phones++; return; }
+      if (code === 404 || (code === 400 && /UNREGISTERED|registration token/i.test(text))) { ownerDelete_(meta[i]); return; }
+      if (code === 401 || code === 403) throw new Error('Phone notifications are not authorised. In the script editor, run setupPush once (see README).');
+      console.warn('FCM ' + code + ': ' + text.slice(0, 300));
+    });
+  }
+  docs.forEach(function (d) {
+    var path = d.name.split('/documents/')[1];
+    UrlFetchApp.fetch(fsBase_() + path + '?updateMask.fieldPaths=pushed', {
+      method: 'patch', contentType: 'application/json', headers: ownerHeaders_(),
+      payload: JSON.stringify({ fields: { pushed: { booleanValue: true } } }), muteHttpExceptions: true
+    });
+  });
+  return { messages: docs.length, phones: phones };
+}
+
+function fcmRequest_(token, data) {
+  return {
+    url: 'https://fcm.googleapis.com/v1/projects/' + encodeURIComponent(prop_('FIREBASE_PROJECT_ID')) + '/messages:send',
+    method: 'post', contentType: 'application/json', headers: ownerHeaders_(), muteHttpExceptions: true,
+    payload: JSON.stringify({ message: { token: token, data: data, webpush: { headers: { Urgency: 'high', TTL: '86400' } } } })
+  };
+}
+
+function ownerHeaders_() {
+  return { Authorization: 'Bearer ' + ScriptApp.getOAuthToken(), 'X-Goog-User-Project': prop_('FIREBASE_PROJECT_ID') };
+}
+
+/** GET a document as the script owner (bypasses the rules). null when missing. */
+function ownerGet_(path) {
+  var res = UrlFetchApp.fetch(fsBase_() + path, { headers: ownerHeaders_(), muteHttpExceptions: true });
+  if (res.getResponseCode() === 404) return null;
+  if (res.getResponseCode() !== 200) throw new Error('Database error (' + res.getResponseCode() + ').');
+  return JSON.parse(res.getContentText());
+}
+
+/** Runs a structured query as the script owner and returns the documents. */
+function ownerQuery_(query) {
+  var url = fsBase_().replace(/documents\/$/, 'documents:runQuery');
+  var res = UrlFetchApp.fetch(url, { method: 'post', contentType: 'application/json', headers: ownerHeaders_(),
+    payload: JSON.stringify({ structuredQuery: query }), muteHttpExceptions: true });
+  if (res.getResponseCode() !== 200) throw new Error('Database error (' + res.getResponseCode() + ').');
+  return JSON.parse(res.getContentText()).map(function (r) { return r.document; }).filter(Boolean);
+}
+
+/** Deletes a document given its full resource name. */
+function ownerDelete_(name) {
+  UrlFetchApp.fetch('https://firestore.googleapis.com/v1/' + name, { method: 'delete', headers: ownerHeaders_(), muteHttpExceptions: true });
+}
+
+function fsBool_(doc, name) {
+  var f = doc && doc.fields && doc.fields[name];
+  return !!(f && f.booleanValue);
 }

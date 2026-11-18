@@ -786,3 +786,4 @@ body.readonly .sleep-actions .sleep-btn, body.readonly .sleep-time input { point
 @media (max-width: 720px) { .pwa-bar { bottom: calc(84px + env(safe-area-inset-bottom)); } }
 html.standalone, html.standalone body { overscroll-behavior-y: none; }
 html.standalone body { -webkit-tap-highlight-color: transparent; }
+.pwa-bar .pwa-x { color: var(--surface); padding: 4px 6px; }

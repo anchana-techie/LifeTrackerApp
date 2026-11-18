@@ -41,6 +41,7 @@ Browser (GitHub Pages)
 | `document_link` (fact table) | `<userId>_<year>` | `userId`, `userName`, `year`, `driveFileId`, `driveLink`, `uploadedAt` |
 | `invites` | the email (lower-case) | `email`, `invitedAt` |
 | `usernames` | lower-cased username | `uid` (reserves the name) |
+| `push_tokens` | hash of the token | `uid`, `email`, `token`, `device`, `updatedAt` (one row per phone with notifications on) |
 | `astro_pairs` | auto id | `members` (two user ids), `names`, `births` (per user: `date`, `time`, `place`, `lat`, `lon`, `tz`), `by`, `createdAt`, `updatedAt` |
 
 There is **no password column** — Firebase Authentication stores passwords (hashed); duplicating them in a table would only make a leak worse.
@@ -84,6 +85,17 @@ This is the folder that will hold one sub-folder per person: `MasterFolder/Perso
 > If an upload ever says *Could not save the file link (403)*: open the Firebase project's linked Google Cloud project, and enable the **Cloud Firestore API**.
 
 When you change `Code.gs` later: **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy.** The URL stays the same.
+
+### 3b. Phone notifications (optional, ≈5 minutes)
+Lets the admin's messages reach people's phones as real notifications, even when the app is closed. Free (no Blaze plan).
+1. Firebase console → ⚙️ **Project settings → Cloud Messaging** → *Web configuration* → **Web Push certificates → Generate key pair**. Copy the key and paste it into `vapidKey` in `config.js` (it is public, not a secret).
+2. In the Apps Script editor, replace `Code.gs` **and** `appsscript.json` with the repo's versions (they add the `firebase.messaging` and trigger permissions).
+3. Pick **setupPush** in the function list → **Run** → allow the new permissions. This also starts a job every 5 minutes for scheduled messages.
+4. **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy.**
+5. Publish the updated `firestore.rules` (new `push_tokens` table).
+6. Each person: **Settings → Phone notifications → Turn on notifications**. On iPhone this only works in the installed app (iOS 16.4 or later): install it first, open it from the home screen, then turn notifications on.
+
+The script must be owned by an account that is an owner of the Firebase project (it sends with that login). If sending fails with "not authorised", run **setupPush** again.
 
 ### 4. Publish the site
 

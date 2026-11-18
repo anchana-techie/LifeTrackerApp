@@ -152,14 +152,36 @@ const Account = (() => {
 
     /* ----- admin ----- */
     /** Admin: send one message to each email. Throws if any write is refused. */
+    /** Admin: send one message to each email. Returns the new message ids. Throws if any write is refused. */
     async sendMessage(emails, text, icon, by, deliverAt) {
       try {
-        const batch = db.batch();
-        [...new Set(emails.map(lower))].forEach(email => batch.set(db.collection('messages').doc(), {
-          email, text, icon, by, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-          ...(deliverAt ? { deliverAt: firebase.firestore.Timestamp.fromDate(deliverAt) } : {}) }));
+        const batch = db.batch(), ids = [];
+        [...new Set(emails.map(lower))].forEach(email => {
+          const ref = db.collection('messages').doc();
+          ids.push(ref.id);
+          batch.set(ref, {
+            email, text, icon, by, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            ...(deliverAt ? { deliverAt: firebase.firestore.Timestamp.fromDate(deliverAt) } : {}) });
+        });
         await batch.commit();
+        return ids;
       } catch (e) { fail(e); }
+    },
+
+    /* ----- phone notifications (push_tokens) ----- */
+    async savePushToken(id, token, device) {
+      const u = auth.currentUser;
+      try {
+        await db.doc('push_tokens/' + id).set({ uid: u.uid, email: lower(u.email), token, device: String(device).slice(0, 80),
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp() });
+      } catch (e) { fail(e); }
+    },
+    async deletePushToken(id) {
+      try { await db.doc('push_tokens/' + id).delete(); } catch (e) { /* already gone */ }
+    },
+    /** Admin: uids that have at least one phone with notifications on. */
+    async pushUids() {
+      try { return new Set((await db.collection('push_tokens').get()).docs.map(d => d.data().uid)); } catch { return new Set(); }
     },
     async listMembers() {
       try {

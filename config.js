@@ -8,6 +8,10 @@ window.APP_CONFIG = {
     apiKey: 'AIzaSyCIN742pmwAjX6LoOghzF3qCuJf9ffkc2o',
     authDomain: 'trackerhabits-c3d42.firebaseapp.com',
     projectId: 'trackerhabits-c3d42',
-    appId: '1:47762747932:web:94f577a866f8ed623165d9'
-  }
+    appId: '1:47762747932:web:94f577a866f8ed623165d9',
+    messagingSenderId: '47762747932'
+  },
+  // Phone notifications: Firebase console -> Project settings -> Cloud Messaging -> Web Push certificates
+  // -> Generate key pair, then paste the "Key pair" value here. It is public, not a secret.
+  vapidKey: ''
 };

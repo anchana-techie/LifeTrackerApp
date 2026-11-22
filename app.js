@@ -211,13 +211,25 @@ function applyLocal(action, p) {
   } else if (action === 'setWork') {
     const days = (S.data.work ||= { days: {} }).days;
     if (!p.status && !p.note) delete days[p.date]; else days[p.date] = { status: p.status || '', note: p.note || '' };
+  } else if (['addFood', 'updateFood', 'deleteFood', 'saveDiet'].includes(action)) {
+    if (typeof Food !== 'undefined') Food.applyLocal(action, p);
   } else if (action === 'saveTask') {
     const tasks = (S.data.tasks ||= {}), name = String(p.name).replace(/\s+/g, ' ').trim();
     let kind = p.kind;
     if (p.create) { if (sh[kind] && !sh[kind].items.some(i => norm(i.name) === norm(name))) sh[kind].items.push({ name, marked: [] }); }
     else kind = ['dos', 'habits'].find(k => sh[k]?.items.some(i => norm(i.name) === norm(name))) || kind;
     const key = Object.keys(tasks).find(k => norm(k) === norm(name)) || name;
-    tasks[key] = { kind, start: p.start || '', duration: p.duration ? Number(p.duration) : null, priority: Number(p.priority) || 2, period: p.period || '' };
+    let newName = key;
+    const rn = p.rename ? String(p.rename).replace(/\s+/g, ' ').trim() : '';
+    if (!p.create && rn && rn !== name) {
+      const item = sh[kind]?.items.find(i => norm(i.name) === norm(name));
+      if (item) item.name = rn;
+      delete tasks[key];
+      const g = store.get('groups', {});
+      if (g[name] !== undefined) { g[rn] = g[name]; delete g[name]; store.set('groups', g); }
+      newName = rn;
+    }
+    tasks[newName] = { kind, start: p.start || '', duration: p.duration ? Number(p.duration) : null, priority: Number(p.priority) || 2, period: p.period || '', end: p.end || '' };
     buildIndex();
   }
 }
@@ -346,6 +358,7 @@ function renderTab() {
   else if (S.tab === 'upload') renderUpload();
   else if (S.tab === 'files') renderFiles();
   else if (S.tab === 'tasks') renderTasks();
+  else if (S.tab === 'food') { if (typeof Food !== 'undefined') Food.render(); }
   else if (S.tab === 'timegen') renderTimegen();
   else if (S.tab === 'assistant') renderAssistant();
   else if (S.tab === 'admin') renderAdmin();
@@ -376,8 +389,8 @@ function autoGroup(name) {
 }
 const taskMeta = name => S.idx?.tasks?.get(norm(name)) || null;
 const groupOf = name => store.get('groups', {})[name] || taskMeta(name)?.period || autoGroup(name);
-/** a task added mid-year only exists from its start date */
-const taskStarted = (name, date) => { const st = taskMeta(name)?.start; return !st || date >= st; };
+/** a task added mid-year only exists from its start date, and a stopped task is hidden from its stop date on */
+const taskStarted = (name, date) => { const m = taskMeta(name); return (!m?.start || date >= m.start) && (!m?.end || date < m.end); };
 
 /* =========================================================
  * TODAY — pending edits can span many days
@@ -2246,7 +2259,7 @@ async function onAuthChange(profile, msg) {
   $('#navAdmin').hidden = !admin;
   $('#navUpload').hidden = admin;   // admins do not upload files for themselves
   // an admin only sees completion across everyone: no personal pages, no files, no tasks; the assistant only knows completion
-  $$('.nav-btn').forEach(b => { if (['buy', 'files', 'tasks', 'timegen'].includes(b.dataset.tab)) b.hidden = admin; });
+  $$('.nav-btn').forEach(b => { if (['buy', 'files', 'tasks', 'timegen', 'food'].includes(b.dataset.tab)) b.hidden = admin; });
   S.members = []; S.memberYears = {};
   astro()?.onSignIn(profile);   // finds this person's linked pair, shows the Astrology tab and the Today banner
   push()?.onSignIn(profile);    // refreshes this phone's notification token (pwa.js)
@@ -2856,6 +2869,18 @@ function renderTasks() {
     h('div', { class: 'row-actions' }, h('button', { class: 'btn primary', disabled: ro }, icon('plus'), 'Add task')));
 
   // ----- existing tasks -----
+  const today = todayKey();
+  // every save sends the full settings, so nothing is lost between edits
+  const send = (k, name, changes) => {
+    const m = taskMeta(name) || {};
+    const per = changes.period ?? groupOf(name);
+    if (k === 'dos' && !changes.rename) { const g = store.get('groups', {}); g[name] = per; store.set('groups', g); }
+    sendQuick('saveTask', { name, kind: k, create: false, start: m.start || '', end: m.end || '', duration: m.duration || null,
+      priority: m.priority || 2, period: per, ...changes });
+  };
+  const exists = (n, except) => ['dos', 'habits', 'products'].some(k => S.idx[k]?.items.some(x => norm(x) === norm(n) && norm(x) !== norm(except)));
+  const stoppedNow = name => { const e = taskMeta(name)?.end; return !!e && e <= today; };
+
   const rowFor = (k, name) => {
     const m = taskMeta(name) || {};
     const durI = h('input', { type: 'number', min: '1', max: '720', step: '1', value: m.duration || '', placeholder: String(DEFAULT_MIN[k]), 'aria-label': `Minutes for ${name}`, disabled: ro });
@@ -2863,18 +2888,79 @@ function renderTasks() {
     const perS = h('select', { 'aria-label': `Time of day for ${name}`, disabled: ro }, GROUPS.map(([g]) => opt(g, g, groupOf(name))));
     const save = () => {
       if (durI.value && !(Number(durI.value) >= 1 && Number(durI.value) <= 720)) return toast('Minutes should be between 1 and 720.', true);
-      if (k === 'dos') { const g = store.get('groups', {}); g[name] = perS.value; store.set('groups', g); }
-      sendQuick('saveTask', { name, kind: k, create: false, start: taskMeta(name)?.start || '', duration: durI.value ? Number(durI.value) : null, priority: Number(priS.value), period: perS.value });
+      send(k, name, { duration: durI.value ? Number(durI.value) : null, priority: Number(priS.value), period: perS.value });
     };
     [durI, priS, perS].forEach(el => el.addEventListener('change', save));
-    return h('div', { class: 'task-row' },
-      h('div', { class: 'task-name' }, icon(iconFor(name, k)), h('span', null, name), m.start ? h('span', { class: 'pill' }, `from ${fmt(m.start)}`) : null),
-      h('label', { class: 'task-f' }, h('span', null, 'Min'), durI), h('label', { class: 'task-f' }, h('span', null, 'Priority'), priS), h('label', { class: 'task-f' }, h('span', null, 'When'), perS));
+
+    // edit panel: name and start date
+    const panel = h('div', { class: 'task-edit', hidden: true });
+    const openEdit = () => {
+      const nameI = h('input', { type: 'text', value: name, maxlength: '80', required: true, 'aria-label': 'Task name' });
+      const startI = h('input', { type: 'date', min: S.idx.first, max: S.idx.last, value: m.start || '', 'aria-label': 'Starts on' });
+      fill(panel,
+        h('label', null, 'Name', nameI),
+        h('label', null, 'Starts on (blank = whole year)', startI),
+        h('p', { class: 'sub' }, 'Renaming keeps every past tick. Days before the start date are hidden, not erased.'),
+        h('div', { class: 'row-actions' },
+          h('button', { class: 'btn ghost small', type: 'button', onclick: () => { panel.hidden = true; } }, 'Cancel'),
+          h('button', { class: 'btn primary small', type: 'button', onclick: () => {
+            const nn = nameI.value.replace(/\s+/g, ' ').trim();
+            if (!nn) return toast('Enter a name.', true);
+            if (nn !== name && exists(nn, name)) return toast('A Daily Do, Habit or Product with that name already exists.', true);
+            if (startI.value && m.end && startI.value >= m.end) return toast('The start date must be before the stop date.', true);
+            send(k, name, { start: startI.value || '', ...(nn !== name ? { rename: nn } : {}) });
+            toast(nn !== name ? `Renamed to “${nn}”` : 'Saved');
+            renderTasks();
+          } }, icon('device-floppy'), ' Save')));
+      panel.hidden = false;
+    };
+    const openStop = () => {
+      const lo = m.start && m.start >= clampDate(today) ? addDays(m.start, 1) : clampDate(today);
+      const endI = h('input', { type: 'date', min: addDays(m.start || S.idx.first, 1), max: S.idx.last, value: lo, 'aria-label': 'Stop from' });
+      fill(panel,
+        h('label', null, 'Stop showing it from', endI),
+        h('p', { class: 'sub' }, `“${name}” is hidden from this day on. Past ticks stay in your sheet and Insights, and you can restore it any time.`),
+        h('div', { class: 'row-actions' },
+          h('button', { class: 'btn ghost small', type: 'button', onclick: () => { panel.hidden = true; } }, 'Cancel'),
+          h('button', { class: 'btn small danger', type: 'button', onclick: () => {
+            if (!endI.value) return toast('Pick a date.', true);
+            if (m.start && endI.value <= m.start) return toast('The stop date must be after the start date.', true);
+            send(k, name, { end: endI.value });
+            toast(`“${name}” stops from ${fmt(endI.value)}`);
+            renderTasks();
+          } }, icon('player-stop'), ' Stop')));
+      panel.hidden = false;
+    };
+    return h('div', { class: 'task-row-wrap' },
+      h('div', { class: 'task-row' },
+        h('div', { class: 'task-name' }, icon(iconFor(name, k)), h('span', null, name),
+          m.start ? h('span', { class: 'pill' }, `from ${fmt(m.start)}`) : null,
+          m.end ? h('span', { class: 'pill warn' }, `until ${fmt(addDays(m.end, -1))}`) : null),
+        h('label', { class: 'task-f' }, h('span', null, 'Min'), durI), h('label', { class: 'task-f' }, h('span', null, 'Priority'), priS), h('label', { class: 'task-f' }, h('span', null, 'When'), perS),
+        ro ? null : h('div', { class: 'task-acts' },
+          h('button', { class: 'icon-btn', type: 'button', title: 'Edit name or start date', 'aria-label': `Edit ${name}`, onclick: openEdit }, icon('pencil')),
+          h('button', { class: 'icon-btn', type: 'button', title: 'Stop this task', 'aria-label': `Stop ${name}`, onclick: openStop }, icon('player-stop')))),
+      panel);
   };
-  const lists = ['dos', 'habits'].filter(k => S.idx[k]?.items.length).map(k =>
+  const stoppedRow = (k, name) => {
+    const m = taskMeta(name) || {};
+    return h('div', { class: 'task-row stopped' },
+      h('div', { class: 'task-name' }, icon(iconFor(name, k)), h('span', null, name), h('span', { class: 'pill' }, KIND_LABEL[k])),
+      h('span', { class: 'muted' }, `${m.start ? fmt(m.start) : 'Start of year'} – ${fmt(addDays(m.end, -1))}`),
+      ro ? null : h('button', { class: 'btn small ghost', type: 'button', onclick: () => {
+        send(k, name, { end: '' });
+        toast(`“${name}” is back from today`);
+        renderTasks();
+      } }, icon('arrow-back-up'), ' Restore'));
+  };
+  const lists = ['dos', 'habits'].filter(k => S.idx[k]?.items.some(n => !stoppedNow(n))).map(k =>
     h('div', { class: 'card settings' }, h('h2', null, k === 'dos' ? 'Daily Dos' : 'Habits'),
-      h('p', { class: 'sub' }, 'These details are used by TimeGenerator. Blank minutes uses the default.'),
-      h('div', { class: 'task-list' }, S.idx[k].items.map(n => rowFor(k, n)))));
+      h('p', { class: 'sub' }, 'Minutes, priority and time of day are used by TimeGenerator. Tap ✏️ to rename or change the start date, ⏹ to stop a task.'),
+      h('div', { class: 'task-list' }, S.idx[k].items.filter(n => !stoppedNow(n)).map(n => rowFor(k, n)))));
+  const stopped = ['dos', 'habits'].flatMap(k => (S.idx[k]?.items || []).filter(stoppedNow).map(n => stoppedRow(k, n)));
+  if (stopped.length) lists.push(h('div', { class: 'card settings' }, h('h2', null, 'Stopped'),
+    h('p', { class: 'sub' }, 'Hidden from their stop date. Their past ticks are still in your sheet and Insights.'),
+    h('div', { class: 'task-list' }, stopped)));
   fill(body, h('div', { class: 'settings-grid' }, form), h('div', { class: 'settings-grid', style: 'margin-top:18px' }, lists));
 }
 

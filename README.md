@@ -19,6 +19,7 @@ Browser (GitHub Pages)
 | `index.html`, `style.css`, `app.js` | The website. |
 | `account.js` | Firebase sign-in, registration, change password, Firestore reads. |
 | `astro.js` | Astrology for linked couples: rasi charts and the daily reading, calculated in the browser. |
+| `food.js` | Food log: calories, protein, carbs and fat per meal, AI estimates and the daily target. |
 | `pwa.js`, `sw.js`, `manifest.webmanifest`, `icons/` | Web app: install to the home screen, quick start, offline page, update prompt. |
 | `config.js` | **You fill this in:** Apps Script URL + Firebase web config. |
 | `Code.gs`, `Morning.gs`, `appsscript.json` | The Apps Script bridge (Drive upload + Sheet reads/writes). |
@@ -151,6 +152,12 @@ The script must be owned by an account that is an owner of the Firebase project 
    - The Today banner shows both ratings, the Moon and Rahu kalam (green, amber or red).
    - The first time each person opens the app at or after **8 am**, a pop-up gives both ratings, the Moon and Tara advice, the couple line and Rahu kalam (once a day). The site cannot notify you while it is closed, so it appears when you next open it.
    - Charts use sidereal positions with the Lahiri ayanamsa and mean Rahu/Ketu, calculated in the browser with Astronomy Engine (loaded from jsDelivr only when needed). City search uses the free Open-Meteo geocoding service.
+
+6. **Food:**
+   - Pick the meal, type what you ate (e.g. *2 idli with sambar, filter coffee*) and tap **Estimate calories**. Groq (the assistant's key) estimates calories, protein, carbs and fat, guided by a built-in list of about 120 common Indian foods. Every number can be corrected before and after saving. **Enter myself** adds an empty row; **Recent** re-adds something you logged before.
+   - The daily target uses your latest weight, height (Settings), age and gender with the Mifflin-St Jeor formula and your activity level, then -500 kcal to lose (never below 1200 kcal for women / 1500 for men) or +300 to gain. Protein is 1.2-1.6 g per kg, fat 25% of calories, carbs the rest. Set your date of birth, activity and goal on the Food page; a fixed target overrides the calculation.
+   - Saved in the year file: `Food Log` (one row per food) and `Body Settings` (date of birth, activity, goal, target). Estimates count towards the assistant's daily limit.
+7. **Editing tasks:** on the Tasks page, ✏️ renames a task or changes its start date (past ticks are kept), ⏹ stops it from a date (hidden from then on, history stays), and **Stopped** lists them with **Restore**. The stop date is the `Stopped from` column in `Task Settings`.
 
 **Try it first:** Settings → *Load demo data* shows every screen with made-up numbers. Nothing is sent anywhere.
 

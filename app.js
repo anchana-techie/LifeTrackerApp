@@ -229,7 +229,8 @@ function applyLocal(action, p) {
       if (g[name] !== undefined) { g[rn] = g[name]; delete g[name]; store.set('groups', g); }
       newName = rn;
     }
-    tasks[newName] = { kind, start: p.start || '', duration: p.duration ? Number(p.duration) : null, priority: Number(p.priority) || 2, period: p.period || '', end: p.end || '' };
+    const prevDays = (Object.entries(tasks).find(([k]) => norm(k) === norm(newName))?.[1] || {}).days || '';
+    tasks[newName] = { kind, start: p.start || '', duration: p.duration ? Number(p.duration) : null, priority: Number(p.priority) || 2, period: p.period || '', end: p.end || '', days: p.days !== undefined ? p.days : prevDays };
     buildIndex();
   }
 }
@@ -389,8 +390,21 @@ function autoGroup(name) {
 }
 const taskMeta = name => S.idx?.tasks?.get(norm(name)) || null;
 const groupOf = name => store.get('groups', {})[name] || taskMeta(name)?.period || autoGroup(name);
-/** a task added mid-year only exists from its start date, and a stopped task is hidden from its stop date on */
-const taskStarted = (name, date) => { const m = taskMeta(name); return (!m?.start || date >= m.start) && (!m?.end || date < m.end); };
+/* ----- which days a task applies to -----
+ * days: '' every day | 'Weekdays' (Mon-Fri) | 'Weekends' (Sat-Sun) | 'Mon,Wed,Fri' (exact days).
+ * A day marked Leave or Holiday in Work counts as a weekend day for the two presets. */
+const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const DOW_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+const isOffDay = date => { const w = dow(date); if (w === 0 || w === 6) return true; const st = S.data?.work?.days?.[date]?.status; return st === 'Leave' || st === 'Holiday'; };
+function scheduledOn(days, date) {
+  if (!days) return true;
+  if (days === 'Weekdays') return !isOffDay(date);
+  if (days === 'Weekends') return isOffDay(date);
+  return days.split(',').includes(DOW_SHORT[dow(date)]);
+}
+const daysLabel = days => !days ? 'Every day' : days === 'Weekdays' ? 'Weekdays' : days === 'Weekends' ? 'Weekends' : days.split(',').join(' ');
+/** true when a task applies on this date: started, not stopped, and scheduled for this day */
+const taskStarted = (name, date) => { const m = taskMeta(name); return (!m?.start || date >= m.start) && (!m?.end || date < m.end) && scheduledOn(m?.days, date); };
 
 /* =========================================================
  * TODAY — pending edits can span many days
@@ -449,7 +463,16 @@ function bmiInfo(kg, cm) {
   return { bmi, label, cls, ico, advice, lo, hi };
 }
 
-function streakEnding(set, date) { let n = 0, k = date; while (set.has(k)) { n++; k = addDays(k, -1); } return n; }
+/** consecutive done days ending at date; with a task name, days it does not apply to are skipped, not counted as breaks */
+function streakEnding(set, date, name) {
+  let n = 0, k = date;
+  for (let guard = 0; guard < 800; guard++) {
+    if (name && !taskStarted(name, k)) { if (!S.idx || k < S.idx.first) break; k = addDays(k, -1); continue; }
+    if (!set.has(k)) break;
+    n++; k = addDays(k, -1);
+  }
+  return n;
+}
 
 function dayScore(date) {
   let done = 0, total = 0;
@@ -524,7 +547,7 @@ function buildSummary(date) {
     const lw = latestWeigh(date), cm = S.data.profile?.height;
     if (lw && cm) { const b = bmiInfo(lw.kg, cm); if (b.cls !== 'good') pills.push(h('span', { class: 'pill ' + b.cls }, icon(b.ico), `BMI ${b.bmi.toFixed(1)} · ${b.label}`)); }
   }
-  const best = ['dos', 'habits'].flatMap(k => (S.idx[k]?.items || []).map(n => ({ n, s: streakEnding(S.idx[k].sets[n], addDays(date, -1)) + (currentGrid(k, n, date) ? 1 : 0) }))).sort((a, b) => b.s - a.s)[0];
+  const best = ['dos', 'habits'].flatMap(k => (S.idx[k]?.items || []).filter(n => taskStarted(n, date)).map(n => ({ n, s: streakEnding(S.idx[k].sets[n], addDays(date, -1), n) + (currentGrid(k, n, date) ? 1 : 0) }))).sort((a, b) => b.s - a.s)[0];
   if (best && best.s >= 3) pills.push(h('span', { class: 'pill' }, icon('flame'), `${best.n} · ${best.s} days`));
   const left = sc.total - sc.done;
   return h('div', { class: 'card summary', id: 'summaryCard' },
@@ -544,7 +567,7 @@ function tapTile(k, name, date, extra = {}) {
     btn.classList.toggle('on', on);
     btn.classList.toggle('changed', pkey(date, name) in S.pending.grid[k]);
     btn.setAttribute('aria-pressed', String(on));
-    const streak = ix.sets[name] ? streakEnding(ix.sets[name], addDays(date, -1)) + (on ? 1 : 0) : 0;
+    const streak = ix.sets[name] ? streakEnding(ix.sets[name], addDays(date, -1), name) + (on ? 1 : 0) : 0;
     let meta = null;
     if (k !== 'products' && streak >= 2) meta = h('span', { class: 'tm', title: `${streak}-day streak` }, icon('flame'), streak);
     if (k === 'products' && extra.last) meta = h('span', { class: 'tm', title: 'Last bought' }, fmt(extra.last));
@@ -795,7 +818,12 @@ function buildWork(date) {
   const paint = () => {
     const cur = get().status;
     fill(btns, WORK.map(([v, ico, label]) => h('button', { class: 'btn small ' + (cur === v ? 'primary' : 'ghost'), 'aria-pressed': String(cur === v), disabled: !inRange,
-      onclick: () => { sendQuick('setWork', { date, status: cur === v ? '' : v, note: get().note }); paint(); } }, icon(ico), label)));
+      onclick: () => {
+        const before = ['dos', 'habits'].flatMap(k => (S.idx[k]?.items || []).filter(n => taskStarted(n, date))).join('|');
+        sendQuick('setWork', { date, status: cur === v ? '' : v, note: get().note }); paint();
+        // Leave / Holiday turn the day into a weekend day for Weekdays / Weekends tasks
+        if (['dos', 'habits'].flatMap(k => (S.idx[k]?.items || []).filter(n => taskStarted(n, date))).join('|') !== before) renderLog();
+      } }, icon(ico), label)));
     note.value = get().note;
     hint.textContent = cur ? '' : [0, 6].includes(dow(date)) ? 'Weekend. Nothing needs logging unless you worked.' : 'Where are you working today? Tap again to clear.';
   };
@@ -1229,38 +1257,42 @@ function previousWindow([s, e]) {
 function analyzeGrid(k, [start, end]) {
   const ix = S.idx[k];
   if (!ix) return null;
+  // only days a task applies to count (start / stop dates, weekdays / weekends, picked days)
+  const active = (n, d) => taskStarted(n, d);
   const days = ix.dates.filter(d => d >= start && d <= end);
-  const logged = days.filter(d => ix.loggedDays.has(d));
-  const nItems = ix.items.length;
-  const score = logged.map(d => ix.items.filter(n => ix.sets[n].has(d)).length / nItems);
+  const logged = days.filter(d => ix.loggedDays.has(d) && ix.items.some(n => active(n, d)));
+  const score = logged.map(d => { const its = ix.items.filter(n => active(n, d)); return its.filter(n => ix.sets[n].has(d)).length / its.length; });
 
   const items = ix.items.map(name => {
     const set = ix.sets[name];
-    const done = logged.filter(d => set.has(d));
-    // streaks inside window, consecutive calendar days
+    const sched = logged.filter(d => active(name, d));
+    const done = sched.filter(d => set.has(d));
+    // streaks inside the window over the days it applies to
     let longest = 0, run = 0;
-    for (const d of days) { if (set.has(d)) { run++; longest = Math.max(longest, run); } else run = 0; }
+    for (const d of days) { if (!active(name, d)) continue; if (set.has(d)) { run++; longest = Math.max(longest, run); } else run = 0; }
     const t = todayKey();
     const anchor = set.has(end) ? end : (end === t ? addDays(end, -1) : end);
-    const current = streakEnding(set, anchor);
+    const current = streakEnding(set, anchor, name);
     const byDow = Array.from({ length: 7 }, (_, w) => {
-      const ld = logged.filter(d => dow(d) === w);
+      const ld = sched.filter(d => dow(d) === w);
       return ld.length ? ld.filter(d => set.has(d)).length / ld.length : null;
     });
-    const half = Math.floor(logged.length / 2);
-    const a = logged.slice(0, half), b = logged.slice(half);
+    const half = Math.floor(sched.length / 2);
+    const a = sched.slice(0, half), b = sched.slice(half);
     const trend = (a.length >= 3 && b.length >= 3) ? (b.filter(d => set.has(d)).length / b.length) - (a.filter(d => set.has(d)).length / a.length) : null;
     const lastDone = [...set].filter(d => d <= end).sort().pop() || null;
-    return { name, done: done.length, rate: logged.length ? done.length / logged.length : null, longest, current, byDow, trend, lastDone };
+    return { name, done: done.length, rate: sched.length ? done.length / sched.length : null, longest, current, byDow, trend, lastDone, days: taskMeta(name)?.days || '' };
   });
 
   // keystone: other items' completion on days this item is done vs not
   for (const it of items) {
     const set = ix.sets[it.name];
-    const others = ix.items.filter(n => n !== it.name);
     const on = [], off = [];
     for (const d of logged) {
-      const sc = others.filter(n => ix.sets[n].has(d)).length / Math.max(1, others.length);
+      if (!active(it.name, d)) continue;
+      const others = ix.items.filter(n => n !== it.name && active(n, d));
+      if (!others.length) continue;
+      const sc = others.filter(n => ix.sets[n].has(d)).length / others.length;
       (set.has(d) ? on : off).push(sc);
     }
     it.lift = (on.length >= 3 && off.length >= 3) ? mean(on) - mean(off) : null;
@@ -1411,8 +1443,8 @@ function analyzeWeight([start, end]) {
       const e = { name, sheet: k };
       let best = 0;
       for (const [mk, rows] of Object.entries(metrics)) {
-        const on = rows.filter(x => ix.loggedDays.has(x.d) && ix.sets[name].has(x.d)).map(x => x.v);
-        const off = rows.filter(x => ix.loggedDays.has(x.d) && !ix.sets[name].has(x.d)).map(x => x.v);
+        const on = rows.filter(x => ix.loggedDays.has(x.d) && taskStarted(name, x.d) && ix.sets[name].has(x.d)).map(x => x.v);
+        const off = rows.filter(x => ix.loggedDays.has(x.d) && taskStarted(name, x.d) && !ix.sets[name].has(x.d)).map(x => x.v);
         if (on.length >= 3 && off.length >= 3) { e[mk] = { on: mean(on), off: mean(off), diff: mean(on) - mean(off) }; best = Math.max(best, Math.abs(e[mk].diff)); }
       }
       if (best) { e.best = best; effects.push(e); }
@@ -1677,14 +1709,14 @@ function viewGrid(k, win, body) {
     heat.append(h('div', { class: 'hn', title: name }, name));
     days.forEach(d => {
       const logged = ix.loggedDays.has(d);
-      const on = ix.sets[name].has(d);
-      heat.append(h('div', { class: 'hc' + (on ? ' on' : logged ? '' : ' off-log'), title: `${name} · ${fmtLong(d)}: ${on ? 'done' : logged ? 'not done' : 'day not logged'}` }));
+      const on = ix.sets[name].has(d), applies = taskStarted(name, d);
+      heat.append(h('div', { class: 'hc' + (on ? ' on' : !applies ? ' rest' : logged ? '' : ' off-log'), title: `${name} · ${fmtLong(d)}: ${on ? 'done' : !applies ? 'not scheduled' : logged ? 'not done' : 'day not logged'}` }));
     });
   }
   body.append(h('div', { class: 'card', style: 'margin-bottom:16px' },
     h('h2', null, 'Day-by-day map'), h('p', { class: 'sub' }, days.length < A.days.length ? 'Last 62 days of the selected period' : windowLabel(win)),
     h('div', { class: 'heat-wrap', style: 'margin-top:12px' }, heat),
-    h('div', { class: 'legend' }, h('span', null, h('i', { style: 'background:var(--done)' }), 'Done'), h('span', null, h('i', { style: 'background:var(--miss)' }), 'Not done'), h('span', null, h('i', { style: 'border:1px dashed var(--line)' }), 'Day not logged'))
+    h('div', { class: 'legend' }, h('span', null, h('i', { style: 'background:var(--done)' }), 'Done'), h('span', null, h('i', { style: 'background:var(--miss)' }), 'Not done'), h('span', null, h('i', { style: 'border:1px dashed var(--line)' }), 'Day not logged'), h('span', null, h('i', { class: 'rest-key' }), 'Not scheduled'))
   ));
 
   // insights
@@ -1948,7 +1980,7 @@ function analyzeSleep([start, end]) {
   // how the day after short vs long sleep went
   const dos = S.idx.dos;
   if (dos) {
-    const score = d => dos.items.filter(nm => dos.sets[nm].has(d)).length / dos.items.length;
+    const score = d => { const its = dos.items.filter(nm => taskStarted(nm, d)); return its.length ? its.filter(nm => dos.sets[nm].has(d)).length / its.length : 0; };
     const lg = nights.filter(x => dos.loggedDays.has(x.date));
     const short = lg.filter(x => x.dur < 390), good = lg.filter(x => x.dur >= 420);
     if (short.length >= 2 && good.length >= 2) out.next = { short: mean(short.map(x => score(x.date))), good: mean(good.map(x => score(x.date))), ns: short.length, ng: good.length };
@@ -2832,6 +2864,34 @@ const PRIORITIES = [[1, 'High'], [2, 'Medium'], [3, 'Low']];
 const DEFAULT_MIN = { dos: 30, habits: 10 };
 const KIND_LABEL = { dos: 'Daily Do', habits: 'Habit' };
 
+/** Every day / Weekdays / Weekends / pick days. Returns { el, get() } where get() is the saved Days value or null if invalid. */
+function daysPicker(value = '') {
+  const mode = h('select', { 'aria-label': 'Days' },
+    [['', 'Every day'], ['Weekdays', 'Weekdays (Mon–Fri)'], ['Weekends', 'Weekends (Sat–Sun)'], ['Custom', 'Pick days…']].map(([v, l]) => h('option', { value: v }, l)));
+  const custom = value && value !== 'Weekdays' && value !== 'Weekends';
+  mode.value = custom ? 'Custom' : value;
+  const picked = new Set(custom ? value.split(',') : []);
+  const chips = h('div', { class: 'chips day-chips', role: 'group', 'aria-label': 'Pick days', hidden: !custom },
+    DOW_ORDER.map(d => { const b = h('button', { type: 'button', class: 'chip', 'aria-pressed': String(picked.has(d)), onclick: () => { picked.has(d) ? picked.delete(d) : picked.add(d); b.setAttribute('aria-pressed', String(picked.has(d))); } }, d); return b; }));
+  const hint = h('p', { class: 'sub days-hint' });
+  const sync = () => {
+    chips.hidden = mode.value !== 'Custom';
+    hint.textContent = mode.value === 'Weekdays' ? 'Hidden on Saturdays, Sundays and days marked Leave or Holiday.'
+      : mode.value === 'Weekends' ? 'Shows on Saturdays, Sundays and days marked Leave or Holiday.'
+      : mode.value === 'Custom' ? 'Shows only on the days you pick.' : '';
+  };
+  mode.addEventListener('change', sync); sync();
+  return {
+    el: h('div', { class: 'days-picker' }, mode, chips, hint),
+    get() {
+      if (mode.value !== 'Custom') return mode.value;
+      const list = DOW_ORDER.filter(d => picked.has(d));
+      if (!list.length) return null;
+      return list.length === 7 ? '' : list.join(',');
+    }
+  };
+}
+
 function renderTasks() {
   const body = $('#tasksBody');
   if (!S.data || S.groupMode) return fill(body, h('p', { class: 'sub' }, 'Open one person’s year to manage tasks.'));
@@ -2845,6 +2905,7 @@ function renderTasks() {
   const durIn = h('input', { type: 'number', min: '1', max: '720', step: '1', placeholder: `${DEFAULT_MIN.dos}`, inputmode: 'numeric', disabled: ro });
   const priSel = h('select', { disabled: ro }, PRIORITIES.map(([v, l]) => opt(v, l, 2)));
   const perSel = h('select', { disabled: ro }, GROUPS.map(([g]) => opt(g, g, 'Daytime')));
+  const dayPick = daysPicker('');
   kindSel.addEventListener('change', () => { durIn.placeholder = String(DEFAULT_MIN[kindSel.value]); });
   const form = h('form', { class: 'card settings', onsubmit: e => {
     e.preventDefault();
@@ -2852,9 +2913,10 @@ function renderTasks() {
     if (!name) return;
     if (['dos', 'habits', 'products'].some(k => S.idx[k]?.items.some(n => norm(n) === norm(name)))) return toast('A Daily Do, Habit or Product with that name already exists.', true);
     if (!startIn.value || startIn.value < S.idx.first || startIn.value > S.idx.last) return toast(`Pick a start date inside ${S.idx.year}.`, true);
-    const kind = kindSel.value;
+    const kind = kindSel.value, days = dayPick.get();
+    if (days === null) return toast('Pick at least one day.', true);
     if (kind === 'dos') { const g = store.get('groups', {}); g[name] = perSel.value; store.set('groups', g); }
-    sendQuick('saveTask', { name, kind, create: true, start: startIn.value, duration: durIn.value ? Number(durIn.value) : null, priority: Number(priSel.value), period: perSel.value });
+    sendQuick('saveTask', { name, kind, create: true, start: startIn.value, duration: durIn.value ? Number(durIn.value) : null, priority: Number(priSel.value), period: perSel.value, days });
     toast(`Added “${name}”. It shows from ${fmt(startIn.value)}.`);
     renderTasks();
   } },
@@ -2866,6 +2928,7 @@ function renderTasks() {
     h('label', null, 'Takes (minutes, optional)', durIn),
     h('label', null, 'Priority', priSel),
     h('label', null, 'Best time of day', perSel),
+    h('label', null, 'Days', dayPick.el),
     h('div', { class: 'row-actions' }, h('button', { class: 'btn primary', disabled: ro }, icon('plus'), 'Add task')));
 
   // ----- existing tasks -----
@@ -2876,7 +2939,7 @@ function renderTasks() {
     const per = changes.period ?? groupOf(name);
     if (k === 'dos' && !changes.rename) { const g = store.get('groups', {}); g[name] = per; store.set('groups', g); }
     sendQuick('saveTask', { name, kind: k, create: false, start: m.start || '', end: m.end || '', duration: m.duration || null,
-      priority: m.priority || 2, period: per, ...changes });
+      priority: m.priority || 2, period: per, days: m.days || '', ...changes });
   };
   const exists = (n, except) => ['dos', 'habits', 'products'].some(k => S.idx[k]?.items.some(x => norm(x) === norm(n) && norm(x) !== norm(except)));
   const stoppedNow = name => { const e = taskMeta(name)?.end; return !!e && e <= today; };
@@ -2897,10 +2960,12 @@ function renderTasks() {
     const openEdit = () => {
       const nameI = h('input', { type: 'text', value: name, maxlength: '80', required: true, 'aria-label': 'Task name' });
       const startI = h('input', { type: 'date', min: S.idx.first, max: S.idx.last, value: m.start || '', 'aria-label': 'Starts on' });
+      const dp = daysPicker(m.days || '');
       fill(panel,
         h('label', null, 'Name', nameI),
         h('label', null, 'Starts on (blank = whole year)', startI),
-        h('p', { class: 'sub' }, 'Renaming keeps every past tick. Days before the start date are hidden, not erased.'),
+        h('label', null, 'Days', dp.el),
+        h('p', { class: 'sub' }, 'Renaming keeps every past tick. Days before the start date, and days it is not scheduled, are hidden, not erased.'),
         h('div', { class: 'row-actions' },
           h('button', { class: 'btn ghost small', type: 'button', onclick: () => { panel.hidden = true; } }, 'Cancel'),
           h('button', { class: 'btn primary small', type: 'button', onclick: () => {
@@ -2908,7 +2973,9 @@ function renderTasks() {
             if (!nn) return toast('Enter a name.', true);
             if (nn !== name && exists(nn, name)) return toast('A Daily Do, Habit or Product with that name already exists.', true);
             if (startI.value && m.end && startI.value >= m.end) return toast('The start date must be before the stop date.', true);
-            send(k, name, { start: startI.value || '', ...(nn !== name ? { rename: nn } : {}) });
+            const days = dp.get();
+            if (days === null) return toast('Pick at least one day.', true);
+            send(k, name, { start: startI.value || '', days, ...(nn !== name ? { rename: nn } : {}) });
             toast(nn !== name ? `Renamed to “${nn}”` : 'Saved');
             renderTasks();
           } }, icon('device-floppy'), ' Save')));
@@ -2934,11 +3001,12 @@ function renderTasks() {
     return h('div', { class: 'task-row-wrap' },
       h('div', { class: 'task-row' },
         h('div', { class: 'task-name' }, icon(iconFor(name, k)), h('span', null, name),
+          m.days ? h('span', { class: 'pill teal' }, daysLabel(m.days)) : null,
           m.start ? h('span', { class: 'pill' }, `from ${fmt(m.start)}`) : null,
           m.end ? h('span', { class: 'pill warn' }, `until ${fmt(addDays(m.end, -1))}`) : null),
         h('label', { class: 'task-f' }, h('span', null, 'Min'), durI), h('label', { class: 'task-f' }, h('span', null, 'Priority'), priS), h('label', { class: 'task-f' }, h('span', null, 'When'), perS),
         ro ? null : h('div', { class: 'task-acts' },
-          h('button', { class: 'icon-btn', type: 'button', title: 'Edit name or start date', 'aria-label': `Edit ${name}`, onclick: openEdit }, icon('pencil')),
+          h('button', { class: 'icon-btn', type: 'button', title: 'Edit name, start date or days', 'aria-label': `Edit ${name}`, onclick: openEdit }, icon('pencil')),
           h('button', { class: 'icon-btn', type: 'button', title: 'Stop this task', 'aria-label': `Stop ${name}`, onclick: openStop }, icon('player-stop')))),
       panel);
   };
@@ -2955,7 +3023,7 @@ function renderTasks() {
   };
   const lists = ['dos', 'habits'].filter(k => S.idx[k]?.items.some(n => !stoppedNow(n))).map(k =>
     h('div', { class: 'card settings' }, h('h2', null, k === 'dos' ? 'Daily Dos' : 'Habits'),
-      h('p', { class: 'sub' }, 'Minutes, priority and time of day are used by TimeGenerator. Tap ✏️ to rename or change the start date, ⏹ to stop a task.'),
+      h('p', { class: 'sub' }, 'Minutes, priority and time of day are used by TimeGenerator. Tap ✏️ to rename it, change its start date or pick its days (weekdays, weekends…), ⏹ to stop it.'),
       h('div', { class: 'task-list' }, S.idx[k].items.filter(n => !stoppedNow(n)).map(n => rowFor(k, n)))));
   const stopped = ['dos', 'habits'].flatMap(k => (S.idx[k]?.items || []).filter(stoppedNow).map(n => stoppedRow(k, n)));
   if (stopped.length) lists.push(h('div', { class: 'card settings' }, h('h2', null, 'Stopped'),
@@ -3164,7 +3232,7 @@ function bucket(pts) {
 function runTool(name, a) {
   a = a || {};
   if (name === 'list_tasks') {
-    return ['dos', 'habits'].flatMap(k => (S.idx[k]?.items || []).map(n => { const m = taskMeta(n); return { name: n, list: k, starts: m?.start || null, minutes: m?.duration || null, priority: m?.priority || null }; })).slice(0, 80);
+    return ['dos', 'habits'].flatMap(k => (S.idx[k]?.items || []).map(n => { const m = taskMeta(n); return { name: n, list: k, starts: m?.start || null, minutes: m?.duration || null, priority: m?.priority || null, days: daysLabel(m?.days) }; })).slice(0, 80);
   }
   if (name === 'get_summary') {
     if (!AI_METRICS.includes(a.metric)) throw new Error('metric must be one of ' + AI_METRICS.join(', '));

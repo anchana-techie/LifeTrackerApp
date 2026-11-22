@@ -914,7 +914,8 @@ function setWork_(ss, req) {
   return { saved: true };
 }
 
-// ---------- task settings: Task | List | Start date | Duration (min) | Priority | Period | Stopped from ----------
+// ---------- task settings: Task | List | Start date | Duration (min) | Priority | Period | Stopped from | Days ----------
+// Days: '' (every day), 'Weekdays' (Mon-Fri, not Leave/Holiday), 'Weekends' (Sat-Sun, Leave, Holiday) or e.g. 'Mon,Wed,Fri'.
 
 var TASK_SHEET = 'Task Settings';
 var TASK_PERIODS = ['Morning', 'Daytime', 'Evening'];
@@ -934,14 +935,25 @@ function readTasks_(ss, tz) {
       duration: Number(values[r][3]) > 0 ? Number(values[r][3]) : null,
       priority: Number(values[r][4]) >= 1 && Number(values[r][4]) <= 3 ? Number(values[r][4]) : 2,
       period: TASK_PERIODS.indexOf(String(values[r][5])) >= 0 ? String(values[r][5]) : '',
-      end: (function (v) { var e = isDate_(v) ? fmt_(v, tz) : String(v || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(e) ? e : ''; })(values[r][6])
+      end: (function (v) { var e = isDate_(v) ? fmt_(v, tz) : String(v || '').trim(); return /^\d{4}-\d{2}-\d{2}$/.test(e) ? e : ''; })(values[r][6]),
+      days: taskDays_(values[r][7])
     };
   }
   return out;
 }
 
+var TASK_DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+/** Cleans a Days value; anything unrecognised means every day. */
+function taskDays_(v) {
+  var s = String(v == null ? '' : v).replace(/\s+/g, '');
+  if (s === 'Weekdays' || s === 'Weekends') return s;
+  var picked = TASK_DOW.filter(function (d) { return s.split(',').indexOf(d) >= 0; });
+  return picked.length && picked.length < 7 && picked.length === s.split(',').length ? picked.join(',') : '';
+}
+
 /**
  * req: { name, kind:'dos'|'habits', create:true|false, start:'yyyy-MM-dd'|'', duration:min|null,
+ *        days:'' | 'Weekdays' | 'Weekends' | 'Mon,Wed,Fri' (undefined keeps the saved value),
  *        priority:1|2|3 (1 = high), period:'Morning'|'Daytime'|'Evening'|'',
  *        end:'yyyy-MM-dd'|'' (hidden from that day on; past ticks stay), rename:'New name' (existing tasks only) }
  * create adds the task as a new row in Daily Dos / Habits (it must not exist yet); otherwise only its settings change.
@@ -1010,9 +1022,15 @@ function saveTask_(ss, req) {
   for (var r = 1; r < values.length; r++) {
     if (norm_(values[r][0]) === norm_(oldName)) { row = r + 1; break; }
   }
+  var days = req.days === undefined ? (row > 0 ? taskDays_(values[row - 1][7]) : '') : String(req.days);
+  if (days !== '' && taskDays_(days) === '') throw new Error('Unknown days: use Weekdays, Weekends or days like Mon,Wed,Fri.');
+  days = taskDays_(days);   // puts picked days in Mon..Sun order
+  if (String(sh2.getRange(1, 8).getValue()) === '') {
+    sh2.getRange(1, 8).setValue('Days').setFontWeight('bold').setFontColor('#ffffff').setBackground('#2F5496');
+  }
   if (row < 0) row = Math.max(sh2.getLastRow(), 1) + 1;
-  sh2.getRange(row, 1, 1, 7).setNumberFormats([['@', '@', '@', '0', '0', '@', '@']])
-    .setValues([[name, kind === 'habits' ? 'Habits' : 'Daily Dos', start, duration, priority, period, end]]);
+  sh2.getRange(row, 1, 1, 8).setNumberFormats([['@', '@', '@', '0', '0', '@', '@', '@']])
+    .setValues([[name, kind === 'habits' ? 'Habits' : 'Daily Dos', start, duration, priority, period, end, days]]);
   return { saved: true, name: name };
 }
 

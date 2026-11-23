@@ -3151,8 +3151,8 @@ function buildPlan() {
  * The agent loop and the data tools run here; Code.gs only proxies to Groq.
  * Tools return aggregates and short series, never free-text notes.
  * ======================================================= */
-const AI_METRICS = ['dos', 'habits', 'sleep', 'weight', 'water', 'work', 'spending'];
-const AI_NAME = { dos: 'Daily Dos', habits: 'Habits', sleep: 'Sleep', weight: 'Weight', water: 'Water', work: 'Work location', spending: 'Spending' };
+const AI_METRICS = ['dos', 'habits', 'sleep', 'weight', 'water', 'work', 'spending', 'food', 'period'];
+const AI_NAME = { dos: 'Daily Dos', habits: 'Habits', sleep: 'Sleep', weight: 'Weight', water: 'Water', work: 'Work location', spending: 'Spending', food: 'Food', period: 'Period cycle' };
 S.chat = { msgs: [], ui: [], reports: [], busy: false, paint: null };
 
 const r1 = x => x === null || x === undefined || isNaN(x) ? null : Math.round(x * 10) / 10;
@@ -3209,6 +3209,46 @@ function summaryOf(metric, win) {
     return { months: months.map(m => ({ month: m.m, planned_inr: m.planned, bought_inr: m.boughtVal, items_bought: m.boughtCount, budget_inr: m.budget })),
       overdue_restock: SP.restock.filter(r => r.status === 'overdue').slice(0, 5).map(r => r.name) };
   }
+  if (metric === 'food') {
+    const fd = S.data.food?.days || {}, have = typeof Food !== 'undefined';
+    const days = Object.keys(fd).filter(d => d >= a && d <= b && fd[d].length).sort();
+    const t = have ? Food.targets(b <= todayKey() ? b : todayKey()) : {};
+    const target = t.kcal ? { kcal: t.kcal, protein_g: t.protein, carbs_g: t.carbs, fat_g: t.fat, fixed_by_user: t.fixed, goal: S.data.diet?.goal || null } : null;
+    if (!days.length) return { days_logged: 0, target, missing_for_target: t.missing?.length ? t.missing : undefined };
+    const tot = days.map(d => have ? Food.sum(fd[d]) : { kcal: 0, protein: 0, carbs: 0, fat: 0 });
+    const avg = k => r1(mean(tot.map(x => x[k])));
+    const counts = {}, meals = {};
+    days.forEach(d => fd[d].forEach(i => {
+      const k = i.food.toLowerCase(); counts[k] = counts[k] || { food: i.food, times: 0, kcal: 0 }; counts[k].times++; counts[k].kcal += +i.kcal || 0;
+      (meals[i.meal] ||= []).push(+i.kcal || 0);
+    }));
+    const today = fd[todayKey()] && todayKey() >= a && todayKey() <= b && have ? Food.sum(fd[todayKey()]) : null;
+    return {
+      days_logged: days.length, avg_per_logged_day: { kcal: Math.round(avg('kcal')), protein_g: avg('protein'), carbs_g: avg('carbs'), fat_g: avg('fat') }, target,
+      days_within_10pct_of_target: target ? tot.filter(x => Math.abs(x.kcal - target.kcal) <= target.kcal * 0.1).length : null,
+      days_over_target: target ? tot.filter(x => x.kcal > target.kcal * 1.1).length : null, days_under_target: target ? tot.filter(x => x.kcal < target.kcal * 0.9).length : null,
+      days_protein_target_met: target ? tot.filter(x => x.protein >= target.protein_g * 0.9).length : null,
+      avg_kcal_by_meal: Object.fromEntries(Object.entries(meals).map(([m, v]) => [m, Math.round(v.reduce((x, y) => x + y, 0) / days.length)])),
+      most_logged_foods: Object.values(counts).sort((x, y) => y.times - x.times).slice(0, 8).map(c => ({ food: c.food, times: c.times, avg_kcal: Math.round(c.kcal / c.times) })),
+      today: today ? { kcal: Math.round(today.kcal), protein_g: r1(today.protein), carbs_g: r1(today.carbs), fat_g: r1(today.fat), left_kcal: target ? Math.round(target.kcal - today.kcal) : null } : null,
+      note: 'Calories are estimates the user logged or corrected.'
+    };
+  }
+  if (metric === 'period') {
+    if (!S.idx.period) return { available: false, reason: 'This tracker has no Period Tracker sheet.' };
+    const P = analyzePeriod(), t = todayKey();
+    if (!P.periods.length) return { available: true, periods_logged: 0 };
+    const last = P.periods[P.periods.length - 1], now = cycleDayOn(P, t);
+    return {
+      periods_logged: P.periods.length, periods_in_range: P.periods.filter(x => x.start >= a && x.start <= b).map(x => ({ start: x.start, end: x.end, days: x.length })),
+      last_period: { start: last.start, end: last.end, days: last.length },
+      avg_cycle_days: P.avgCycle ? r1(P.avgCycle) : null, cycle_used_for_prediction_days: P.usedCycle, cycle_variation_days: P.variation, avg_period_days: P.avgLen ? r1(P.avgLen) : null,
+      next_period_expected: P.next, expected_window: P.next ? [addDays(P.next, -P.spread), addDays(P.next, P.spread)] : null, following_periods: P.nextList.slice(1),
+      late_by_days: P.late, today: now ? { cycle_day: now.day, phase: now.phase } : null,
+      ovulation_estimate: P.ovulation, fertile_window_estimate: P.fertile, prediction_is_rough: P.estimated, flags: P.flags,
+      note: 'Calendar estimates from logged days, not medical or contraceptive advice.'
+    };
+  }
   throw new Error('Unknown metric.');
 }
 
@@ -3219,6 +3259,7 @@ function seriesPoints(metric, win) {
   if (metric === 'weight') return (analyzeWeight(win)?.pts || []).map(p => [p[0], p[1]]);
   if (metric === 'water') return Object.entries(S.data.water?.days || {}).filter(([d]) => d >= a && d <= b).sort(([x], [y]) => x < y ? -1 : 1).map(([d, v]) => [d, v.total]);
   if (metric === 'dos' || metric === 'habits') { const g = analyzeGrid(metric, win); return g ? g.logged.map((d, i) => [d, pci(g.score[i])]) : []; }
+  if (metric === 'food' && typeof Food !== 'undefined') { const fd = S.data.food?.days || {}; return Object.keys(fd).filter(d => d >= a && d <= b && fd[d].length).sort().map(d => [d, Math.round(Food.sum(fd[d]).kcal)]); }
   return [];
 }
 /** long series are averaged per week so the model and the charts stay small */
@@ -3246,12 +3287,13 @@ function runTool(name, a) {
       const A = analyzeWork(win);
       return { metric: 'work', from: win[0], to: win[1], months: A.months.map((m, i) => ({ month: m, ...A.perMonth[i] })) };
     }
-    if (a.metric === 'spending') return { metric: 'spending', ...summaryOf('spending', win) };
+    if (a.metric === 'spending' || a.metric === 'period') return { metric: a.metric, ...summaryOf(a.metric, win) };
     const raw = seriesPoints(a.metric, win), pts = bucket(raw);
     return { metric: a.metric, from: win[0], to: win[1], averaged_per_week: pts.length !== raw.length, points: pts.map(([date, value]) => ({ date, value })) };
   }
   if (name === 'get_report_data') {
-    const win = aiWin(a), ids = (Array.isArray(a.sections) && a.sections.length ? a.sections : AI_METRICS).filter(x => AI_METRICS.includes(x));
+    // period is only in a report when asked for by name
+    const win = aiWin(a), ids = (Array.isArray(a.sections) && a.sections.length ? a.sections : AI_METRICS.filter(x => x !== 'period')).filter(x => AI_METRICS.includes(x));
     return { from: win[0], to: win[1], sections: Object.fromEntries(ids.map(id => [id, summaryOf(id, win)])) };
   }
   if (name === 'publish_report') {
@@ -3263,6 +3305,10 @@ function runTool(name, a) {
     S.chat.ui.push({ role: 'report', report: rep });
     return { ok: true, message: 'The report is now shown to the user with download buttons.' };
   }
+  if (name === 'get_astrology') {
+    if (typeof Astro === 'undefined' || !Astro) throw new Error('Astrology is not available.');
+    return Astro.forAssistant(a);
+  }
   throw new Error('Unknown tool ' + name);
 }
 
@@ -3273,7 +3319,9 @@ const AI_TOOLS = (() => {
   return [
     fn('get_summary', 'Aggregated statistics for one metric over a date range.', { metric, ...range }, ['metric', 'from', 'to']),
     fn('get_series', 'Day-by-day (or weekly average) values for one metric over a date range.', { metric, ...range }, ['metric', 'from', 'to']),
-    fn('list_tasks', 'The Daily Dos and Habits the user tracks, with start date, minutes and priority.', {}),
+    fn('list_tasks', 'The Daily Dos and Habits the user tracks, with start date, minutes, priority and the days they apply to.', {}),
+    fn('get_astrology', 'Vedic astrology for the user and their linked partner: birth charts (lagna, rasi, nakshatra, planets), the next Chandrashtamam, and day-by-day readings (rating, Moon cautions, Tara balam, tithi, Rahu kalam, advice, slow-planet background).',
+      { from: { type: 'string', description: 'First day, YYYY-MM-DD (default today)' }, days: { type: 'integer', description: 'Number of days, 1 to 14 (default 1)' } }),
     fn('get_report_data', 'All statistics needed to write a report for a date range and chosen sections.', { ...range, sections: { type: 'array', items: metric } }, ['from', 'to', 'sections']),
     fn('publish_report', 'Show the finished report to the user. Call once, after get_report_data. Charts and figures are added automatically from the real data; you supply only the headings and narrative.',
       { title: { type: 'string' }, subtitle: { type: 'string' }, ...range,
@@ -3290,6 +3338,7 @@ function chartSpec(metric, win) {
   if (metric === 'sleep') return one('bar', 'Hours slept', CH.blue);
   if (metric === 'weight') return one('line', 'Weight (kg)', CH.green);
   if (metric === 'water') return one('bar', 'Water (ml)', CH.blue);
+  if (metric === 'food') return one('bar', 'Calories (kcal)', CH.orange);
   if (metric === 'dos') return one('line', 'Daily Dos done (%)', CH.green);
   if (metric === 'habits') return one('line', 'Habits done (%)', CH.green);
   if (metric === 'work') {
@@ -3322,6 +3371,8 @@ function chartImage(spec) {
 
 function tilesFor(metric, s) {
   const v = (x, suf = '') => x === null || x === undefined ? '—' : x + suf;
+  if (metric === 'food') return s.days_logged ? [['Average', v(s.avg_per_logged_day.kcal, ' kcal')], ['Target', s.target ? s.target.kcal + ' kcal' : '—'], ['Protein', v(s.avg_per_logged_day.protein_g, ' g')], ['Days logged', s.days_logged]] : [];
+  if (metric === 'period') return s.periods_logged ? [['Average cycle', v(s.avg_cycle_days, ' d')], ['Next expected', s.next_period_expected ? fmt(s.next_period_expected) : '—'], ['Average length', v(s.avg_period_days, ' d')]] : [];
   if (metric === 'dos' || metric === 'habits') return s.days_logged ? [['Average done', v(s.avg_completion_pct, '%')], ['Days logged', s.days_logged], ['Best', s.best_items?.[0]?.name || '—']] : [];
   if (metric === 'sleep') return s.nights ? [['Average', v(s.avg_hours, ' h')], ['Nights', s.nights], ['Usual bedtime', s.usual_bedtime], ['Usual wake-up', s.usual_wake], ['In 7–9 h', v(s.pct_nights_7_to_9h, '%')]] : [];
   if (metric === 'weight') return s.readings ? [['Latest', v(s.latest.kg, ' kg')], ['Change', v(s.change_kg, ' kg')], ['Average', v(s.avg_kg, ' kg')]] : [];
@@ -3333,7 +3384,7 @@ function tilesFor(metric, s) {
 
 function buildReport(a) {
   const win = aiWin(a);
-  const secs = (Array.isArray(a.sections) ? a.sections : []).filter(x => x && AI_METRICS.includes(x.id)).slice(0, 7);
+  const secs = (Array.isArray(a.sections) ? a.sections : []).filter(x => x && AI_METRICS.includes(x.id)).slice(0, AI_METRICS.length);
   if (!secs.length) throw new Error('No valid sections.');
   const sections = secs.map(x => {
     const sum = summaryOf(x.id, win), spec = chartSpec(x.id, win);
@@ -3527,7 +3578,7 @@ async function agentLoop() {
     if (!calls.length) return;
     for (const tc of calls) {
       let out;
-      try { out = (admin ? runAdminTool : runTool)(tc.function.name, JSON.parse(tc.function.arguments || '{}')); }
+      try { out = await (admin ? runAdminTool : runTool)(tc.function.name, JSON.parse(tc.function.arguments || '{}')); }
       catch (err) { out = { error: err.message }; }
       S.chat.msgs.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(out) });
     }
@@ -3589,7 +3640,7 @@ function renderAssistant() {
   const form = h('form', { class: 'chat-form', onsubmit: e => { e.preventDefault(); const t = input.value; input.value = ''; sendChat(t); } }, input, sendBtn);
   const newBtn = h('button', { class: 'btn small ghost', onclick: () => { if (S.chat.busy) return; S.chat.msgs = []; S.chat.ui = []; paint(); } }, icon('refresh'), 'New chat');
   fill(body, h('div', { class: 'card chat-card' },
-    h('div', { class: 'chat-head' }, h('p', { class: 'sub' }, admin ? 'Participant names, invited email addresses, completion and water statistics (no task names or other personal data) are sent to Groq to write answers.' : 'Your questions and summary statistics (no notes) are sent to Groq to write answers. Not medical advice.'), newBtn),
+    h('div', { class: 'chat-head' }, h('p', { class: 'sub' }, admin ? 'Participant names, invited email addresses, completion and water statistics (no task names or other personal data) are sent to Groq to write answers.' : 'Your questions and summary statistics (tasks, sleep, weight, water, work, spending, food, period cycle and astrology readings; no notes) are sent to Groq to write answers. Not medical advice.'), newBtn),
     log, form));
   S.chat.paint = paint;
   paint();

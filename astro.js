@@ -619,8 +619,53 @@ const Astro = (() => {
     } catch (err) { fill(box, h('p', { class: 'sub err' }, err.message)); }
   }
 
+  /* ---------- data for the Assistant (same numbers as the Astrology tab) ---------- */
+  const PL_EN = { Su: 'Sun', Mo: 'Moon', Ma: 'Mars', Me: 'Mercury', Ju: 'Jupiter', Ve: 'Venus', Sa: 'Saturn', Ra: 'Rahu', Ke: 'Ketu' };
+  const keyOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const sign = i => `${C.RASI[i]} (${C.RASI_EN[i]})`;
+
+  /** { from:'YYYY-MM-DD', days:1-14 } -> charts, daily readings and upcoming Chandrashtamam for the linked couple. */
+  async function forAssistant(a = {}) {
+    if (!pair) return { available: false, reason: 'No astrology charts yet: the admin has not linked this person with a partner and entered birth details.' };
+    const A = await loadLib();
+    const start = /^\d{4}-\d{2}-\d{2}$/.test(a.from || '') ? (() => { const [y, m, d] = a.from.split('-').map(Number); return new Date(y, m - 1, d); })() : startOfDay(new Date());
+    const n = Math.min(14, Math.max(1, Math.round(Number(a.days) || 1)));
+    const me = S.user?.uid, now = new Date();
+    const people = pair.members.map(uid => {
+      const ch = personChart(A, uid), b = pair.births[uid];
+      const nextChandra = C.moonSegments(A, now, new Date(now.getTime() + 40 * 864e5)).find(sg => C.houseFrom(ch.rasi, sg.sign) === 8);
+      return {
+        name: nameOf(uid), is_you: uid === me, born: `${b.date} ${b.time}, ${b.place}`,
+        lagna: sign(ch.lagna), rasi: sign(ch.rasi), nakshatra: `${ch.nakshatra} pada ${ch.pada}`,
+        birth_planets: Object.fromEntries(C.PLANETS.map(([ab]) => [PL_EN[ab], C.RASI[ch.planets[ab].sign] + (ch.planets[ab].retro && ab !== 'Ra' && ab !== 'Ke' ? ' (retrograde)' : '')])),
+        next_chandrashtamam: nextChandra ? { from: nextChandra.start.toLocaleString('en-IN'), to: nextChandra.end.toLocaleString('en-IN') } : null
+      };
+    });
+    const days = [];
+    for (let i = 0; i < n; i++) {
+      const d0 = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i), d1 = new Date(d0.getTime() + 864e5);
+      const rs = pair.members.map(uid => reading(A, uid, d0)), info = dayInfo(A, d0);
+      days.push({
+        date: keyOf(d0),
+        moon: chain(info.moon, sg => C.RASI[sg.sign], d0, d1), nakshatra: chain(info.nak, sg => C.NAK[sg.nak], d0, d1),
+        tithi: chain(info.tithi, sg => C.tithiName(sg.tithi), d0, d1),
+        rahu_kalam: info.kalam ? `${timeFmt(info.kalam.rahu[0])} - ${timeFmt(info.kalam.rahu[1])} (${info.city})` : null,
+        yamagandam: info.kalam ? `${timeFmt(info.kalam.yama[0])} - ${timeFmt(info.kalam.yama[1])}` : null,
+        people: rs.map(r => ({
+          name: r.name, is_you: r.uid === me, rating: RATING[r.rating], chandrashtamam: r.chandra,
+          moon_cautions: r.moonHits.map(hh => `${C.RASI[hh.sign]} ${whenText(hh, d0, d1)}: ${hh.why.map(C.label).join(', ')}`),
+          tara: `${r.tara.name} (${r.tara.kind})`, advice: r.tips,
+          background: { sani: r.g.sani || null, guru_balam: r.g.guruBalam, planets_from_rasi: r.g.list.map(x => `${PL[x.ab]} ${C.ordinal(x.house)} (${x.good ? 'good' : 'not favourable'})`), notes: r.season }
+        })),
+        together: coupleLine(rs)
+      });
+    }
+    return { available: true, system: 'Vedic, sidereal Lahiri ayanamsa; rating from the Moon (1st/7th/8th from rasi or lagna is a caution) and Tara balam', people, days };
+  }
+
   /* ---------- wiring ---------- */
   return {
+    forAssistant,
     /** After sign-in: find this person's pair, show or hide the tab, and draw the Today banner. */
     async onSignIn(profile) {
       pair = null; loaded = false;

@@ -1385,7 +1385,9 @@ function renderBuySummary() {
       const ix = S.idx.products;
       const name = ix?.items.find(n => norm(n) === norm(it.product));
       const since = `${S.idx.year}-${pad(m + 1)}-01`;
-      const everBought = name && [...ix.sets[name]].some(x => x >= since);
+      // bought since that month, as a regular product (Products sheet) or as a one-time buy
+      const everBought = (name && [...ix.sets[name]].some(x => x >= since))
+        || (S.data.oneTime || []).some(o => norm(o.product) === norm(it.product) && o.date >= since);
       if (!everBought && !items.some(i => norm(i.product) === norm(it.product)) && !carry.some(c => norm(c.product) === norm(it.product))) carry.push({ ...it, from: MONTHS[m] });
     }
   }

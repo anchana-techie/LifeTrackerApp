@@ -3,6 +3,7 @@
 Newest first. Add a line here with every feature change.
 
 ## 2026-11-26
+- **Fixed** Buy list "Not bought from earlier months" listed items that had been bought as one-time buys (items not in Products), e.g. November purchases showing up again in December. It now checks the one-time buys too. Previous version on the branch `backup-before-carryfix`.
 - **Changed** Buy list: opens on a read-only **To buy** card (progress ring, what is still to spend, budget left) where one tap on the circle marks an item bought, with a tick, strike-through, confetti and a toast with **Undo**; ticking the last item shows an "All bought" celebration. The editor (budget, add, rename, prices) now opens from **Edit list** and shows only items not yet bought. Bought items move to a collapsed **Bought** bar at the bottom; its ✏️ changes the name, the price paid and the date bought (re-using `markBought` and `saveBuyList`, so no `Code.gs` change). Animations respect the phone's reduce-motion setting. Previous version on the branch `backup-before-buylist`.
 
 ## 2026-11-23

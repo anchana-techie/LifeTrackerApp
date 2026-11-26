@@ -263,7 +263,7 @@ const Money = (() => {
     const startDay = ymOf(st.date) === M.month && !S.readOnly ? boughtOn(st.date) : [];
     const noPrice = list.filter(e => e.kind === 'noprice' && e.date !== st.date);
     const due = list.filter(e => e.kind === 'due');
-    const upcoming = (M.month === ymOf(t0) ? events(addDays(t0, 1), addDays(t0, 35)) : list).filter(e => e.kind === 'upcoming').reverse();
+    const upcoming = list.filter(e => e.kind === 'upcoming').reverse();   // this month only
     const shown = list.filter(e => counted(e));
     const cats = Object.entries(t.byCat).sort((a, b) => b[1] - a[1]);
     const maxCat = cats[0]?.[1] || 1;

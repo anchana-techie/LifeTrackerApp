@@ -1073,3 +1073,5 @@ html.standalone body { -webkit-tap-highlight-color: transparent; }
 .mn-cat-label { font-size: .85rem; color: var(--ink-2); font-weight: 600; margin-bottom: -4px; }
 .mn-what { font-size: 1.05rem; }
 .mn-left-note { margin: -4px 0 0; }
+.mn-startday { display: grid; gap: 6px; }
+.mn-startday .mn-check-line { color: var(--ink); font-size: .92rem; }

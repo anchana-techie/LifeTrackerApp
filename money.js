@@ -15,7 +15,7 @@ const Money = (() => {
     Income: [['Salary', 'briefcase'], ['Freelance', 'device-laptop'], ['Bonus', 'sparkles'], ['Refund', 'receipt-refund'], ['Gift', 'gift'], ['Other', 'dots']],
     Saving: [['FD', 'building-bank'], ['SIP', 'chart-line'], ['RD', 'pig-money'], ['Gold', 'diamond'], ['Emergency fund', 'shield-check'], ['Other', 'pig-money']]
   };
-  const ICON = Object.fromEntries(Object.values(CATS).flat());
+  const ICON = Object.fromEntries(Object.values(CATS).flat().reverse());   // first one wins (Other = dots)
   const TYPE_LABEL = { Spend: 'Spend', Income: 'Income', Saving: 'Saving' };
   const M = { month: null, form: null, check: false, billForm: null, billsOpen: false };
 
@@ -27,6 +27,17 @@ const Money = (() => {
   const ymLabel = ym => `${monthName(ym)} ${ym.slice(0, 4)}`;
   const lastDay = ym => { const [y, m] = ym.split('-').map(Number); return `${ym}-${pad(new Date(y, m, 0).getDate())}`; };
   const addMonth = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
+  const BEFORE = 'Already in balance: ';
+  /** Buy list items bought on the start day before the balance was entered (they are already in it) */
+  const beforeStart = () => { const n = startEntry()?.note || ''; const i = n.indexOf(BEFORE); return i < 0 ? [] : n.slice(i + BEFORE.length).split('|').map(s => s.trim()).filter(Boolean); };
+  const startNote = names => names.length ? (BEFORE + names.join(' | ')).slice(0, 120) : 'Starting balance';
+  const boughtOn = day => { const out = []; for (const [m, items] of Object.entries(S.data.sheets.buy?.months || {})) for (const it of items || []) if (boughtInMonth(it.product, m) === day) out.push({ month: m, ...it }); return out; };
+  function setBeforeStart(product, on) {
+    const st = startEntry(), names = beforeStart().filter(x => norm(x) !== norm(product));
+    if (on) names.push(product);
+    sendQuick('saveMoney', { ...st, note: startNote(names) });
+    toast(on ? `${product} is already in your starting balance` : `${product} now counts as spent`); render();
+  }
   const isSavingItem = name => data().savingsItems.some(x => norm(x) === norm(name));
   /** ₹ with paise only when there are any: ₹1,500 / ₹62.84 */
   const rs = n => { const v = Math.round(Math.abs(Number(n)) * 100) / 100; return '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 }); };
@@ -51,6 +62,7 @@ const Money = (() => {
       for (const it of months[mName] || []) {
         const bd = boughtInMonth(it.product, mName);
         if (!bd || bd < lo || bd > to) continue;
+        if (bd === st.date && beforeStart().some(x => norm(x) === norm(it.product))) continue;   // already in the starting balance
         if (!(Number(it.cost) > 0)) { out.push({ src: 'buy', id: 'nop:' + mName + ':' + it.product, date: bd, kind: 'noprice', label: it.product, amount: 0, month: mName }); continue; }
         const sav = isSavingItem(it.product);
         out.push({ src: 'buy', id: 'buy:' + mName + ':' + it.product, date: bd, kind: sav ? 'saving' : 'spend', category: sav ? 'Savings (Buy list)' : 'Buy list', label: it.product, amount: Number(it.cost), product: it.product });
@@ -117,7 +129,8 @@ const Money = (() => {
       e.preventDefault();
       const v = Number(amt.value);
       if (amt.value === '' || !(v >= 0)) return toast('Enter your balance today (0 is fine).', true);
-      sendQuick('saveMoney', { id: rid(), date: date.value || clampDate(todayKey()), type: 'Start', category: '', note: 'Starting balance', amount: v || 0.01 });
+      const day = date.value || clampDate(todayKey());
+      sendQuick('saveMoney', { id: rid(), date: day, type: 'Start', category: '', note: startNote(boughtOn(day).map(x => x.product)), amount: v || 0.01 });
       toast('Tracking starts now 🎉');
       M.month = ymOf(date.value || todayKey());
       render();
@@ -247,8 +260,10 @@ const Money = (() => {
     const opening = first <= st.date ? st.amount : balance(addDays(first, -1));
     const left = balance(lastDay(M.month) < t0 ? lastDay(M.month) : t0 < first ? first : t0);
     const pool = opening + income;
-    const noPrice = list.filter(e => e.kind === 'noprice');
-    const due = list.filter(e => e.kind === 'due'), upcoming = list.filter(e => e.kind === 'upcoming');
+    const startDay = ymOf(st.date) === M.month && !S.readOnly ? boughtOn(st.date) : [];
+    const noPrice = list.filter(e => e.kind === 'noprice' && e.date !== st.date);
+    const due = list.filter(e => e.kind === 'due');
+    const upcoming = (M.month === ymOf(t0) ? events(addDays(t0, 1), addDays(t0, 35)) : list).filter(e => e.kind === 'upcoming').reverse();
     const shown = list.filter(e => counted(e));
     const cats = Object.entries(t.byCat).sort((a, b) => b[1] - a[1]);
     const maxCat = cats[0]?.[1] || 1;
@@ -264,6 +279,11 @@ const Money = (() => {
       due.length ? h('div', { class: 'mn-due' }, h('h3', null, icon('bell-ringing'), ' Waiting for an amount'),
         due.map(e => h('div', { class: 'mn-due-row' }, h('span', null, h('b', null, e.label), h('span', { class: 'muted' }, ` · due ${fmt(e.date)}`)),
           ro ? null : h('button', { class: 'btn small primary', type: 'button', onclick: () => { M.form = { type: e.realKind === 'saving' ? 'Saving' : 'Spend', amount: '', category: e.category, date: e.date, note: e.label, bill: e.billObj.id, label: e.label }; render(); window.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' }); } }, 'Enter amount')))) : null,
+      startDay.length ? h('div', { class: 'mn-due mn-startday' }, h('h3', null, icon('calendar-check'), ` Bought on your start day (${fmt(st.date)})`),
+        h('p', { class: 'sub' }, 'Ticked = paid before you entered your balance, so it is already in it and not counted again.'),
+        startDay.map(x => { const on = beforeStart().some(n => norm(n) === norm(x.product));
+          return h('label', { class: 'mn-check-line' }, h('input', { type: 'checkbox', checked: on, onchange: e => setBeforeStart(x.product, e.target.checked) }),
+            h('span', null, h('b', null, x.product), Number(x.cost) > 0 ? ` · ${rs(x.cost)}` : on ? '' : ' · no price yet')); })) : null,
       noPrice.length ? h('div', { class: 'mn-due' }, h('h3', null, icon('alert-circle'), ' Bought, but no price yet'),
         h('p', { class: 'sub' }, `${noPrice.map(e => e.label).join(', ')}: not counted until you add the price paid.`),
         h('div', { class: 'row-actions' }, h('span', { class: 'spacer' }), h('button', { class: 'btn small primary', type: 'button', onclick: () => {

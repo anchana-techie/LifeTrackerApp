@@ -62,13 +62,20 @@ const sd = a => { if (a.length < 2) return null; const m = mean(a); return Math.
 const rangeDays = (a, b) => { const out = []; for (let k = a; k <= b; k = addDays(k, 1)) out.push(k); return out; };
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
-function toast(msg, isErr = false) {
+/** action: optional { label, fn } shows a button in the toast (e.g. Undo) and keeps it up a little longer */
+function toast(msg, isErr = false, action = null) {
   const t = $('#toast');
   t.textContent = msg;
-  t.className = 'toast' + (isErr ? ' err' : '');
+  t.className = 'toast' + (isErr ? ' err' : '') + (action ? ' has-action' : '');
+  if (action) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.className = 'toast-action'; b.textContent = action.label;
+    b.onclick = () => { t.hidden = true; action.fn(); };
+    t.append(b);
+  }
   t.hidden = false;
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => { t.hidden = true; }, isErr ? 6000 : 2600);
+  toast._t = setTimeout(() => { t.hidden = true; }, isErr ? 6000 : action ? 5500 : 2600);
 }
 
 // full-screen loading overlay with rotating motivation
@@ -1087,7 +1094,7 @@ function renderBuy() {
     class: 'chip', 'aria-pressed': String(m === S.buyMonth),
     onclick: () => {
       if (S.buyDirty && !confirm('Discard unsaved changes to ' + S.buyMonth + '?')) return;
-      S.buyMonth = m; S.buyDraft = null; renderBuy();
+      S.buyMonth = m; S.buyDraft = null; S.buyEdit = false; S.boughtEditing = null; renderBuy();
     }
   }, m.slice(0, 3), (months[m] || []).length ? h('span', { class: 'dot', 'aria-label': 'has items' }) : null)));
   $('#buyMonthTitle').textContent = `${S.buyMonth} ${S.idx.year}`;
@@ -1095,11 +1102,207 @@ function renderBuy() {
   bi.value = S.buyDraft.budget;
   bi.oninput = () => { S.buyDraft.budget = bi.value; markBuyDirty(); renderBuySummary(); };
   fill($('#productNames'), ...(S.idx.products?.items || []).map(n => h('option', { value: n })));
+  // the editor only shows what is still to buy; bought items stay in the list (and are saved) but live in the Bought card
   const rows = $('#buyRows');
-  fill(rows, ...S.buyDraft.items.map((it, i) => buyRow(it, i)));
-  if (!S.buyDraft.items.length) rows.append(h('div', { class: 'empty-row' }, `Nothing planned for ${S.buyMonth} yet. Add a product below.`));
+  const pendingIdx = S.buyDraft.items.map((it, i) => [it, i]).filter(([it]) => !it.product.trim() || !boughtInMonth(it.product, S.buyMonth));
+  fill(rows, ...pendingIdx.map(([it, i]) => buyRow(it, i)));
+  if (!pendingIdx.length) rows.append(h('div', { class: 'empty-row' }, S.buyDraft.items.length ? 'Everything on this list is bought. Add more below.' : `Nothing planned for ${S.buyMonth} yet. Add a product below.`));
   $('#buyDirty').hidden = !S.buyDirty;
+  $('#buyEditorWrap').dataset.open = String(!!S.buyEdit);
+  renderToBuy();
+  renderBought();
   renderBuySummary();
+}
+
+/* ---------- To buy: read-only list, tap the circle to mark bought ---------- */
+const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+const defaultBuyDate = () => { const t = todayKey(), ym = monthKey(S.buyMonth); return monthOf(t) === ym ? t : clampDate(`${ym}-01`); };
+
+/** counts a number up from its last shown value */
+function countUp(el, to, fmtFn, key) {
+  const from = (countUp.last ||= {})[key] ?? to;
+  countUp.last[key] = to;
+  if (from === to || reduceMotion()) { el.textContent = fmtFn(to); return; }
+  const t0 = performance.now(), dur = 650;
+  const step = now => {
+    const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
+    el.textContent = fmtFn(Math.round(from + (to - from) * e));
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
+function buyState() {
+  const items = S.buyDraft.items.filter(i => i.product.trim());
+  const bought = items.map(i => ({ ...i, date: boughtInMonth(i.product, S.buyMonth) })).filter(i => i.date);
+  const pending = items.filter(i => !boughtInMonth(i.product, S.buyMonth));
+  const sum = list => list.reduce((t, i) => t + (Number(i.cost) || 0), 0);
+  return { items, bought, pending, left: sum(pending), spent: sum(bought) };
+}
+
+function renderToBuy() {
+  const card = $('#toBuyCard');
+  const st = buyState(), n = st.items.length, done = st.bought.length, frac = n ? done / n : 0;
+  const R = 30, C = 2 * Math.PI * R;
+  const prev = renderToBuy.prev?.month === S.buyMonth ? renderToBuy.prev.frac : frac;
+  renderToBuy.prev = { month: S.buyMonth, frac };
+  const ring = h('div', { class: 'tb-ring', role: 'img', 'aria-label': `${done} of ${n} bought` });
+  ring.innerHTML = `<svg viewBox="0 0 72 72" aria-hidden="true"><circle class="tb-ring-bg" cx="36" cy="36" r="${R}"/><circle class="tb-ring-fg" cx="36" cy="36" r="${R}" stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - prev)).toFixed(1)}"/></svg>`;
+  const ringNum = h('b', { class: 'tb-ring-num' }, `${done}/${n}`);
+  ring.append(ringNum);
+  requestAnimationFrame(() => requestAnimationFrame(() => ring.querySelector('.tb-ring-fg')?.setAttribute('stroke-dashoffset', (C * (1 - frac)).toFixed(1))));
+  const leftEl = h('b', { class: 'tb-left-num' });
+  countUp(leftEl, st.left, rupee, 'left-' + S.buyMonth);
+  const budget = S.buyDraft.budget === '' ? null : Number(S.buyDraft.budget);
+  const ro = S.readOnly;
+
+  const head = h('div', { class: 'tb-head' },
+    h('div', null, h('h2', null, 'To buy'), h('p', { class: 'sub' }, `${S.buyMonth} ${S.idx.year}`)),
+    ro ? null : h('button', { class: 'btn small ' + (S.buyEdit ? 'primary' : 'ghost'), type: 'button', 'aria-expanded': String(!!S.buyEdit), onclick: () => {
+      if (S.buyEdit && S.buyDirty && !confirm('Close the editor? Your unsaved changes stay until you save or switch month.')) return;
+      S.buyEdit = !S.buyEdit; $('#buyEditorWrap').dataset.open = String(S.buyEdit); renderToBuy();
+      if (S.buyEdit) setTimeout(() => $('#buyEditorWrap').scrollIntoView({ behavior: reduceMotion() ? 'auto' : 'smooth', block: 'nearest' }), 120);
+    } }, icon(S.buyEdit ? 'x' : 'pencil'), S.buyEdit ? ' Close editor' : ' Edit list'));
+
+  const stats = h('div', { class: 'tb-stats' }, ring,
+    h('div', { class: 'tb-stat-text' },
+      h('div', { class: 'tb-left' }, leftEl, h('span', null, ' still to buy')),
+      h('p', { class: 'sub' }, n ? `${plural(st.pending.length, 'item')} left · ${rupee(st.spent)} bought` : 'Nothing planned yet'),
+      budget !== null ? h('p', { class: 'sub' }, `Budget ${rupee(budget)} · ${rupee(Math.max(0, budget - st.spent))} unspent`) : null));
+
+  let body;
+  if (!n) body = h('div', { class: 'tb-empty' }, icon('shopping-bag'), h('p', null, `Nothing planned for ${S.buyMonth}.`), ro ? null : h('button', { class: 'btn small primary', type: 'button', onclick: () => { S.buyEdit = true; renderBuy(); } }, icon('plus'), ' Plan this month'));
+  else if (!st.pending.length) body = h('div', { class: 'tb-done' + (renderToBuy.celebrate ? ' celebrate' : '') },
+    h('div', { class: 'tb-done-bag' }, icon('shopping-bag-check')), h('b', null, `All bought for ${S.buyMonth}!`), h('p', { class: 'sub' }, `${plural(n, 'item')} · ${rupee(st.spent)}`));
+  else body = h('ul', { class: 'tb-list' }, st.pending.map((it, i) => toBuyItem(it, i)));
+  if (renderToBuy.celebrate) { const c = body; setTimeout(() => burst(c.querySelector('.tb-done-bag') || c, 28, true), 60); }
+  renderToBuy.celebrate = false;
+  fill(card, head, stats, body);
+}
+
+function toBuyItem(it, i) {
+  const check = h('button', { class: 'tb-check', type: 'button', 'aria-label': `Mark ${it.product} bought`, disabled: S.readOnly });
+  check.innerHTML = '<svg viewBox="0 0 28 28" aria-hidden="true"><circle cx="14" cy="14" r="12"/><path d="M8.5 14.5l3.8 3.8 7.4-7.8"/></svg>';
+  const li = h('li', { class: 'tb-item', style: `--i:${i}` },
+    h('span', { class: 'tb-ico' }, icon(iconFor(it.product, 'products'))),
+    h('span', { class: 'tb-name' }, it.product),
+    h('span', { class: 'tb-cost' }, it.cost === '' || it.cost === null ? '' : rupee(Number(it.cost))),
+    check);
+  check.onclick = () => quickBuy(it, li, check);
+  return li;
+}
+
+/** little particles flying out of an element */
+function burst(el, count = 14, big = false) {
+  if (reduceMotion() || !el) return;
+  const r = el.getBoundingClientRect(), layer = h('div', { class: 'burst', 'aria-hidden': 'true', style: `left:${r.left + r.width / 2}px;top:${r.top + r.height / 2}px` });
+  const colors = ['var(--accent)', 'var(--pink)', 'var(--warn)', 'var(--good)', '#7aa2ff'];
+  for (let k = 0; k < count; k++) {
+    const a = (Math.PI * 2 * k) / count + Math.random() * 0.5, d = (big ? 70 : 34) + Math.random() * (big ? 70 : 26);
+    layer.append(h('i', { style: `--x:${(Math.cos(a) * d).toFixed(1)}px;--y:${(Math.sin(a) * d).toFixed(1)}px;--r:${Math.round(Math.random() * 360)}deg;background:${colors[k % colors.length]};animation-delay:${(Math.random() * 60).toFixed(0)}ms` + (k % 3 === 0 ? ';border-radius:50%' : '') }));
+  }
+  document.body.append(layer);
+  setTimeout(() => layer.remove(), 1100);
+}
+
+async function quickBuy(it, li, check) {
+  if (S.readOnly) return toast('This is a read-only view.', true);
+  const date = defaultBuyDate(), product = it.product.trim();
+  check.disabled = true;
+  li.classList.add('checking');
+  burst(check);
+  if (navigator.vibrate) try { navigator.vibrate(12); } catch { /* ignore */ }
+  const wait = ms => new Promise(r => setTimeout(r, reduceMotion() ? 0 : ms));
+  try {
+    await Promise.all([api('markBought', { product, date, bought: true }), wait(380)]);
+    li.classList.add('leaving');
+    await wait(420);
+    if (!S.demo) applyLocal('markBought', { product, date, bought: true });
+    buildIndex();
+    if (!buyState().pending.length) renderToBuy.celebrate = true;
+    renderBought.pop = true;
+    renderBuy();
+    toast(`${product} bought · ${fmt(date)}`, false, { label: 'Undo', fn: () => doMarkBought(product, date, false) });
+  } catch (err) {
+    li.classList.remove('checking', 'leaving'); check.disabled = false;
+    toast(err.message, true);
+  }
+}
+
+/* ---------- Bought: collapsed bar, pen to edit name, price and date ---------- */
+function renderBought() {
+  const card = $('#boughtCard');
+  const st = buyState();
+  card.hidden = !st.bought.length;
+  if (!st.bought.length) { fill(card); return; }
+  const open = !!S.boughtOpen, pop = renderBought.pop; renderBought.pop = false;
+  const list = st.bought.sort((a, b) => b.date < a.date ? -1 : 1);
+  const bar = h('button', { class: 'bought-bar', type: 'button', 'aria-expanded': String(open), onclick: () => { S.boughtOpen = !S.boughtOpen; bar.setAttribute('aria-expanded', String(S.boughtOpen)); wrap.dataset.open = String(S.boughtOpen); } },
+    h('span', { class: 'bought-bar-ico' }, icon('circle-check')),
+    h('span', { class: 'bought-bar-title' }, 'Bought'),
+    h('span', { class: 'pill bought-count' + (pop ? ' pop' : '') }, String(list.length)),
+    h('span', { class: 'spacer' }),
+    h('b', { class: 'bought-total' + (pop ? ' pop' : '') }, rupee(st.spent)),
+    h('span', { class: 'bought-chev' }, icon('chevron-down')));
+  const wrap = h('div', { class: 'bought-wrap', 'data-open': String(open) }, h('div', { class: 'bought-inner' },
+    h('ul', { class: 'bought-list' }, list.map(it => S.boughtEditing === norm(it.product) ? boughtEditRow(it) : boughtRow(it)))));
+  fill(card, bar, wrap);
+}
+
+function boughtRow(it) {
+  return h('li', { class: 'bought-item' },
+    h('span', { class: 'tb-ico done' }, icon(iconFor(it.product, 'products'))),
+    h('span', { class: 'bought-name' }, h('b', null, it.product), h('span', { class: 'muted' }, fmt(it.date, { weekday: 'short', day: 'numeric', month: 'short' }))),
+    h('span', { class: 'tb-cost' }, it.cost === '' || it.cost === null ? '—' : rupee(Number(it.cost))),
+    S.readOnly ? null : h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Edit ${it.product}`, onclick: () => {
+      if (S.buyDirty) return toast('Save or close your list changes first.', true);
+      S.boughtEditing = norm(it.product); renderBought();
+      setTimeout(() => $('#boughtCard .bought-edit input')?.focus(), 50);
+    } }, icon('pencil')));
+}
+
+function boughtEditRow(it) {
+  const ym = monthKey(S.buyMonth), [yy, mm] = ym.split('-').map(Number);
+  const last = `${ym}-${pad(new Date(yy, mm, 0).getDate())}`;
+  const nameI = h('input', { type: 'text', list: 'productNames', value: it.product, maxlength: '80', 'aria-label': 'Name' });
+  const costI = h('input', { type: 'number', min: '0', step: '1', inputmode: 'numeric', value: it.cost ?? '', placeholder: '₹', 'aria-label': 'Price paid' });
+  const dateI = h('input', { type: 'date', value: it.date, min: clampDate(`${ym}-01`), max: clampDate(last), 'aria-label': 'Date bought' });
+  const save = h('button', { class: 'btn small primary', type: 'button' }, icon('device-floppy'), ' Save');
+  save.onclick = async () => {
+    const product = nameI.value.replace(/\s+/g, ' ').trim(), date = dateI.value, cost = costI.value === '' ? '' : Number(costI.value);
+    if (!product) return toast('Enter a name.', true);
+    if (!date) return toast('Pick the date you bought it.', true);
+    if (cost !== '' && !(cost >= 0)) return toast('Enter a valid price.', true);
+    if (norm(product) !== norm(it.product) && buyState().items.some(x => norm(x.product) === norm(product))) return toast(`${product} is already on this month's list.`, true);
+    save.disabled = true; save.textContent = 'Saving…';
+    try { await editBought(it, { product, date, cost }); S.boughtEditing = null; renderBuy(); toast('Saved'); }
+    catch (err) { toast(err.message, true); save.disabled = false; save.textContent = 'Save'; }
+  };
+  return h('li', { class: 'bought-edit' },
+    h('label', null, 'Name', nameI), h('label', null, 'Price paid ₹', costI), h('label', null, 'Bought on', dateI),
+    h('div', { class: 'row-actions' }, h('button', { class: 'btn small ghost', type: 'button', onclick: () => { S.boughtEditing = null; renderBought(); } }, 'Cancel'), h('span', { class: 'spacer' }), save));
+}
+
+/** Uses the existing script actions: move the bought mark if the name or date changed, then save the month list. */
+async function editBought(it, next) {
+  const month = S.buyMonth;
+  const renamed = norm(next.product) !== norm(it.product), moved = next.date !== it.date;
+  if (renamed || moved) {
+    await api('markBought', { product: it.product, date: it.date, bought: false });
+    if (!S.demo) applyLocal('markBought', { product: it.product, date: it.date, bought: false });
+    await api('markBought', { product: next.product, date: next.date, bought: true });
+    if (!S.demo) applyLocal('markBought', { product: next.product, date: next.date, bought: true });
+  }
+  const oldCost = it.cost === '' || it.cost === null || it.cost === undefined ? '' : Number(it.cost);
+  if (renamed || next.cost !== oldCost) {
+    const saved = S.data.sheets.buy.months[month] || [];
+    const items = saved.map(x => norm(x.product) === norm(it.product) ? { product: next.product, cost: next.cost } : { product: x.product, cost: x.cost ?? '' });
+    const payload = { month, items, budget: S.data.budgets?.[month] ?? '' };
+    await api('saveBuyList', payload);
+    if (!S.demo) applyLocal('saveBuyList', payload);
+  }
+  S.buyDraft = null;
+  buildIndex();
 }
 
 function buyRow(it, i) {

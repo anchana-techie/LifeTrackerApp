@@ -9,7 +9,7 @@
  *
  * Bump VERSION with each release; the page then offers "New version available, Reload".
  */
-const VERSION = '20261123a';
+const VERSION = '20261126a';
 const SHELL = 'shell-' + VERSION;
 const LIBS = 'libs-v1';
 const LIB_HOSTS = ['cdn.jsdelivr.net', 'fonts.googleapis.com', 'fonts.gstatic.com', 'www.gstatic.com'];

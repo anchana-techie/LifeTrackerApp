@@ -373,7 +373,7 @@ main { max-width: 1180px; margin: 0 auto; padding: 22px 32px 120px; }
 .toast {
   position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 60;
   background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: .88rem; font-weight: 600;
-  box-shadow: 0 10px 30px rgba(0,0,0,.2); max-width: calc(100vw - 32px);
+  box-shadow: 0 10px 30px rgba(0,0,0,.2); max-width: calc(100vw - 32px); width: max-content;
 }
 .toast.err { background: var(--bad); color: #fff; }
 
@@ -873,3 +873,118 @@ html.standalone body { -webkit-tap-highlight-color: transparent; }
 .days-hint:empty { display: none; }
 .hc.rest { background: repeating-linear-gradient(45deg, transparent 0 2px, var(--line) 2px 3px); opacity: .6; }
 .legend i.rest-key { background: repeating-linear-gradient(45deg, transparent 0 2px, var(--line) 2px 3px); }
+
+/* =========================================================
+ * Buy list: To buy, editor drawer, Bought
+ * ======================================================= */
+.buy-main { display: grid; gap: 0; min-width: 0; }
+.toast.has-action { display: flex; align-items: center; gap: 14px; padding-right: 8px; }
+.toast-action { background: transparent; color: var(--accent); border: 0; font: inherit; font-weight: 800; padding: 4px 8px; border-radius: 8px; cursor: pointer; }
+.toast-action:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+
+/* To buy card */
+.tobuy-card { position: relative; overflow: hidden; }
+.tobuy-card::before { content: ''; position: absolute; inset: -40% -20% auto auto; width: 220px; height: 220px; border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%); pointer-events: none; }
+.tb-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; position: relative; }
+.tb-head h2 { margin: 0; font-size: 1.25rem; }
+.tb-head .sub { margin: 2px 0 0; }
+.tb-stats { display: flex; align-items: center; gap: 16px; margin: 16px 0 6px; position: relative; }
+.tb-ring { position: relative; width: 72px; height: 72px; flex: none; }
+.tb-ring svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.tb-ring circle { fill: none; stroke-width: 7; }
+.tb-ring-bg { stroke: var(--surface-2); }
+.tb-ring-fg { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .9s cubic-bezier(.2, .8, .2, 1); }
+.tb-ring-num { position: absolute; inset: 0; display: grid; place-items: center; font-size: .95rem; font-variant-numeric: tabular-nums; }
+.tb-left { font-size: .9rem; color: var(--ink-2); }
+.tb-left-num { font-size: 1.6rem; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.tb-stat-text .sub { margin: 2px 0 0; }
+
+.tb-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.tb-item { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto 44px; gap: 12px; align-items: center; padding: 10px 10px 10px 12px;
+  border-radius: 16px; background: var(--bg); border: 1px solid transparent; position: relative;
+  animation: tbIn .45s cubic-bezier(.2, .8, .2, 1) both; animation-delay: calc(var(--i, 0) * 45ms);
+  transition: transform .45s cubic-bezier(.5, 0, .75, 0), opacity .4s, max-height .45s .05s, margin .45s .05s, padding .45s .05s, border-color .25s; max-height: 90px; }
+@keyframes tbIn { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+.tb-ico { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-strong); font-size: 1.2rem; }
+.tb-ico.done { background: color-mix(in srgb, var(--good) 16%, var(--surface)); color: var(--good); }
+.tb-name { font-weight: 600; overflow-wrap: anywhere; position: relative; justify-self: start; }
+.tb-name::after { content: ''; position: absolute; left: 0; top: 52%; height: 2px; width: 0; background: currentColor; border-radius: 2px; transition: width .35s ease .05s; }
+.tb-cost { font-variant-numeric: tabular-nums; color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+.tb-check { width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: none; padding: 0; cursor: pointer; border-radius: 50%; color: var(--accent); }
+.tb-check:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tb-check svg { width: 30px; height: 30px; overflow: visible; }
+.tb-check circle { fill: transparent; stroke: currentColor; stroke-width: 2; opacity: .55; transition: fill .3s, opacity .3s, transform .3s; transform-origin: 14px 14px; }
+.tb-check path { fill: none; stroke: var(--surface); stroke-width: 2.6; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 18; stroke-dashoffset: 18; transition: stroke-dashoffset .3s ease .12s; }
+.tb-check:hover circle { opacity: 1; fill: color-mix(in srgb, var(--accent) 14%, transparent); }
+.tb-item.checking { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.tb-item.checking .tb-check circle { fill: var(--accent); opacity: 1; animation: tbPop .45s cubic-bezier(.3, 1.6, .5, 1); }
+.tb-item.checking .tb-check path { stroke-dashoffset: 0; }
+.tb-item.checking .tb-name { color: var(--ink-3); }
+.tb-item.checking .tb-name::after { width: 100%; }
+@keyframes tbPop { 0% { transform: scale(.7); } 60% { transform: scale(1.25); } 100% { transform: scale(1); } }
+.tb-item.leaving { transform: translateX(40%) rotate(2deg); opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin-top: -8px; }
+
+.tb-empty, .tb-done { display: grid; justify-items: center; gap: 6px; text-align: center; padding: 18px 8px 6px; }
+.tb-empty .ti { font-size: 2rem; color: var(--ink-3); }
+.tb-empty p { margin: 0 0 6px; color: var(--ink-2); }
+.tb-done b { font-size: 1.1rem; }
+.tb-done .sub { margin: 0; }
+.tb-done-bag { width: 64px; height: 64px; border-radius: 20px; display: grid; place-items: center; font-size: 2rem; color: #fff; background: linear-gradient(135deg, var(--accent), var(--good)); box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 35%, transparent); }
+.tb-done.celebrate .tb-done-bag { animation: tbBag 1s cubic-bezier(.3, 1.5, .5, 1); }
+.tb-done.celebrate b { animation: tbIn .6s .25s both; }
+@keyframes tbBag { 0% { transform: scale(.3) rotate(-25deg); opacity: 0; } 55% { transform: scale(1.18) rotate(8deg); opacity: 1; } 75% { transform: scale(.94) rotate(-4deg); } 100% { transform: none; } }
+
+/* particles */
+.burst { position: fixed; width: 0; height: 0; z-index: 70; pointer-events: none; }
+.burst i { position: absolute; left: -4px; top: -3px; width: 8px; height: 6px; border-radius: 2px; opacity: 0; animation: burstOut .85s cubic-bezier(.15, .7, .3, 1) forwards; }
+@keyframes burstOut {
+  0% { transform: translate(0, 0) rotate(0) scale(.6); opacity: 1; }
+  70% { opacity: 1; }
+  100% { transform: translate(var(--x), calc(var(--y) + 18px)) rotate(var(--r)) scale(1); opacity: 0; }
+}
+
+/* editor drawer */
+.buy-editor-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .45s cubic-bezier(.2, .8, .2, 1), margin .45s; margin-top: 0; }
+.buy-editor-wrap[data-open="true"] { grid-template-rows: 1fr; margin-top: 18px; }
+.buy-editor-inner { overflow: hidden; min-height: 0; }
+.buy-editor-wrap[data-open="false"] .buy-editor { visibility: hidden; transition: visibility 0s .45s; }
+.buy-editor-wrap[data-open="true"] .buy-editor { animation: tbIn .45s cubic-bezier(.2, .8, .2, 1); }
+
+/* Bought */
+.bought-card { margin-top: 18px; padding: 0; overflow: hidden; }
+.bought-bar { width: 100%; display: flex; align-items: center; gap: 10px; padding: 14px 18px; border: 0; background: none; color: var(--ink); font: inherit; cursor: pointer; text-align: left; }
+.bought-bar:hover { background: var(--surface-2); }
+.bought-bar-ico { color: var(--good); font-size: 1.25rem; display: grid; }
+.bought-bar-title { font-weight: 700; }
+.bought-total { font-variant-numeric: tabular-nums; }
+.bought-chev { display: grid; transition: transform .35s cubic-bezier(.2, .8, .2, 1); color: var(--ink-3); }
+.bought-bar[aria-expanded="true"] .bought-chev { transform: rotate(180deg); }
+.bought-count.pop, .bought-total.pop { animation: tbPop .6s cubic-bezier(.3, 1.6, .5, 1); display: inline-block; }
+.bought-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .4s cubic-bezier(.2, .8, .2, 1); }
+.bought-wrap[data-open="true"] { grid-template-rows: 1fr; }
+.bought-inner { overflow: hidden; min-height: 0; }
+.bought-list { list-style: none; margin: 0; padding: 0 12px 12px; display: grid; gap: 6px; }
+.bought-item { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto 36px; gap: 12px; align-items: center; padding: 8px 6px; border-radius: 12px; }
+.bought-wrap[data-open="true"] .bought-item { animation: tbIn .4s cubic-bezier(.2, .8, .2, 1) both; }
+.bought-wrap[data-open="true"] .bought-item:nth-child(2) { animation-delay: .04s; }
+.bought-wrap[data-open="true"] .bought-item:nth-child(3) { animation-delay: .08s; }
+.bought-wrap[data-open="true"] .bought-item:nth-child(n+4) { animation-delay: .12s; }
+.bought-name { display: flex; flex-direction: column; min-width: 0; }
+.bought-name b { overflow-wrap: anywhere; }
+.bought-name .muted { font-size: .78rem; }
+.bought-edit { display: grid; grid-template-columns: 2fr 1fr 1.3fr; gap: 10px; padding: 12px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); animation: tbIn .3s both; }
+.bought-edit label { display: flex; flex-direction: column; gap: 4px; font-size: .76rem; font-weight: 600; color: var(--ink-2); min-width: 0; }
+.bought-edit input { width: 100%; min-width: 0; }
+.bought-edit .row-actions { grid-column: 1 / -1; margin: 0; }
+
+@media (max-width: 720px) {
+  .tb-item { grid-template-columns: 36px minmax(0, 1fr) auto 44px; gap: 10px; }
+  .tb-ico { width: 36px; height: 36px; }
+  .bought-edit { grid-template-columns: 1fr 1fr; }
+  .bought-edit label:first-child { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tb-item, .tb-ring-fg, .buy-editor-wrap, .bought-wrap, .bought-chev, .tb-item .tb-check *, .tb-name::after, .bought-item, .bought-edit { animation: none !important; transition: none !important; }
+  .tb-done.celebrate .tb-done-bag, .tb-done.celebrate b, .bought-count.pop, .bought-total.pop { animation: none; }
+}

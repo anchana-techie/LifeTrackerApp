@@ -21,18 +21,18 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons-outline.min.css">
-  <link rel="stylesheet" href="style.css?v=20261123a">
+  <link rel="stylesheet" href="style.css?v=20261126a">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" defer></script>
-  <script src="pwa.js?v=20261123a" defer></script>
-  <script src="config.js?v=20261123a" defer></script>
-  <script src="account.js?v=20261123a" defer></script>
-  <script src="app.js?v=20261123a" defer></script>
-  <script src="group.js?v=20261123a" defer></script>
-  <script src="astro.js?v=20261123a" defer></script>
-  <script src="food.js?v=20261123a" defer></script>
+  <script src="pwa.js?v=20261126a" defer></script>
+  <script src="config.js?v=20261126a" defer></script>
+  <script src="account.js?v=20261126a" defer></script>
+  <script src="app.js?v=20261126a" defer></script>
+  <script src="group.js?v=20261126a" defer></script>
+  <script src="astro.js?v=20261126a" defer></script>
+  <script src="food.js?v=20261126a" defer></script>
 </head>
 <body>
 <!-- SIGN IN / REGISTER -->
@@ -178,24 +178,35 @@
           <div class="log-head"><div><h1>Buy list</h1><p class="sub">Plan each month and tick items off as you buy them</p></div></div>
           <div class="month-chips" id="monthChips"></div>
           <div class="buy-layout">
-            <div class="card">
-              <div class="card-head">
-                <h2 id="buyMonthTitle">Month</h2>
-                <label class="budget-field">Budget ₹
-                  <input type="number" min="0" step="50" id="budgetInput" placeholder="0" inputmode="numeric">
-                </label>
-              </div>
-              <div id="buyRows" class="buy-rows"></div>
-              <datalist id="productNames"></datalist>
-              <div class="row-actions">
-                <button class="btn ghost" id="addBuyRow"><i class="ti ti-plus" aria-hidden="true"></i> Add product</button>
-                <span class="spacer"></span>
-                <span class="dirty-note" id="buyDirty" hidden>Unsaved changes</span>
-                <button class="btn primary" id="saveBuyBtn">Save list</button>
+            <div class="buy-main">
+              <!-- what is still to buy: read-only, tap the circle to mark bought -->
+              <div class="card tobuy-card" id="toBuyCard"></div>
+              <!-- editor: pending items only, opened with Edit list -->
+              <div class="buy-editor-wrap" id="buyEditorWrap" data-open="false">
+                <div class="buy-editor-inner">
+                  <div class="card buy-editor">
+                    <div class="card-head">
+                      <h2 id="buyMonthTitle">Month</h2>
+                      <label class="budget-field">Budget ₹
+                        <input type="number" min="0" step="50" id="budgetInput" placeholder="0" inputmode="numeric">
+                      </label>
+                    </div>
+                    <div id="buyRows" class="buy-rows"></div>
+                    <datalist id="productNames"></datalist>
+                    <div class="row-actions">
+                      <button class="btn ghost" id="addBuyRow"><i class="ti ti-plus" aria-hidden="true"></i> Add product</button>
+                      <span class="spacer"></span>
+                      <span class="dirty-note" id="buyDirty" hidden>Unsaved changes</span>
+                      <button class="btn primary" id="saveBuyBtn">Save list</button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
             <aside class="card" id="buySummary"></aside>
           </div>
+          <!-- already bought: collapsed bar, pen to edit -->
+          <div class="card bought-card" id="boughtCard"></div>
         </div>
       </section>
 

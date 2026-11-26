@@ -2,6 +2,9 @@
 
 Newest first. Add a line here with every feature change.
 
+## 2026-11-26
+- **Changed** Buy list: opens on a read-only **To buy** card (progress ring, what is still to spend, budget left) where one tap on the circle marks an item bought, with a tick, strike-through, confetti and a toast with **Undo**; ticking the last item shows an "All bought" celebration. The editor (budget, add, rename, prices) now opens from **Edit list** and shows only items not yet bought. Bought items move to a collapsed **Bought** bar at the bottom; its ✏️ changes the name, the price paid and the date bought (re-using `markBought` and `saveBuyList`, so no `Code.gs` change). Animations respect the phone's reduce-motion setting. Previous version on the branch `backup-before-buylist`.
+
 ## 2026-11-23
 - **Changed** The Assistant can now answer about everything in the tracker: food and diet (calories and macros against the target, most-logged foods, short practical suggestions), the period cycle (last and next period, window, phase, late; summary only, never notes), astrology for the user and their linked partner (new `get_astrology` tool: charts, day-by-day readings, Rahu kalam, next Chandrashtamam), plus tasks with their days, sleep, weight, water, work and spending. Reports can include a Food section; Period cycle only when asked. The system prompt in `Code.gs` widens the scope and adds rules for diet, period and astrology answers, so **paste the new `Code.gs` and deploy a New version**. Previous version on the branch `backup-before-assistant`.
 

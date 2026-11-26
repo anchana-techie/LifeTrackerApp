@@ -19,6 +19,7 @@ Browser (GitHub Pages)
 | `index.html`, `style.css`, `app.js` | The website. |
 | `account.js` | Firebase sign-in, registration, change password, Firestore reads. |
 | `astro.js` | Astrology for linked couples: rasi charts and the daily reading, calculated in the browser. |
+| `money.js` | Money: balance from a starting day, income, spending, savings, monthly bills and SIPs, balance checks. |
 | `food.js` | Food log: calories, protein, carbs and fat per meal, AI estimates and the daily target. |
 | `pwa.js`, `sw.js`, `manifest.webmanifest`, `icons/` | Web app: install to the home screen, quick start, offline page, update prompt. |
 | `config.js` | **You fill this in:** Apps Script URL + Firebase web config. |
@@ -159,6 +160,12 @@ The script must be owned by an account that is an owner of the Firebase project 
    - Pick the meal, type what you ate (e.g. *2 idli with sambar, filter coffee*) and tap **Estimate calories**. Groq (the assistant's key) estimates calories, protein, carbs and fat, guided by a built-in list of about 120 common Indian foods. Every number can be corrected before and after saving. **Enter myself** adds an empty row; **Recent** re-adds something you logged before.
    - The daily target uses your latest weight, height (Settings), age and gender with the Mifflin-St Jeor formula and your activity level, then -500 kcal to lose (never below 1200 kcal for women / 1500 for men) or +300 to gain. Protein is 1.2-1.6 g per kg, fat 25% of calories, carbs the rest. Set your date of birth, activity and goal on the Food page; a fixed target overrides the calculation.
    - Saved in the year file: `Food Log` (one row per food) and `Body Settings` (date of birth, activity, goal, target). Estimates count towards the assistant's daily limit.
+6a. **Money:**
+   - First time: enter your balance today (bank + cash). Tracking starts from that day; nothing earlier is needed.
+   - **Add income** when salary (or anything else) arrives; the amount can change every month. **Add spend** / **Add saving** for everything else. Buy list items you tick as bought count as spending automatically; 🐷 on one counts it as savings.
+   - **Monthly bills & SIPs:** add rent, EMI, phone or a SIP once with its day of the month. Fixed amounts count on that day; tick *Changes every month* and the app asks for the amount when it is due. ✏️ on a month's row changes or skips (0) just that month; **Stop** ends it after this month.
+   - **Check balance:** type what your bank app really shows; the difference is saved as untracked spending or income so the balance always matches.
+   - Saved in the year file: `Money`, `Money Bills` and `Money Settings`.
 7. **Weekday / weekend tasks:** a task can apply every day, on Weekdays (Mon–Fri), on Weekends (Sat–Sun) or on picked days (e.g. Mon, Wed, Fri). Set it when adding a task or with ✏️ on the Tasks page. A day marked **Leave** or **Holiday** in Work counts as a weekend day for the Weekdays / Weekends choices (picked days follow the calendar only). On days a task does not apply it is hidden on Today, not counted as missed, and streaks carry over those days; Insights shows those days as *Not scheduled*. Saved in the `Days` column of `Task Settings`.
 8. **Editing tasks:** on the Tasks page, ✏️ renames a task or changes its start date (past ticks are kept), ⏹ stops it from a date (hidden from then on, history stays), and **Stopped** lists them with **Restore**. The stop date is the `Stopped from` column in `Task Settings`.
 

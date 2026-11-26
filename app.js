@@ -220,6 +220,8 @@ function applyLocal(action, p) {
     if (!p.status && !p.note) delete days[p.date]; else days[p.date] = { status: p.status || '', note: p.note || '' };
   } else if (['addFood', 'updateFood', 'deleteFood', 'saveDiet'].includes(action)) {
     if (typeof Food !== 'undefined') Food.applyLocal(action, p);
+  } else if (['saveMoney', 'deleteMoney', 'saveBill', 'deleteBill', 'setSavingsItems'].includes(action)) {
+    if (typeof Money !== 'undefined') Money.applyLocal(action, p);
   } else if (action === 'saveTask') {
     const tasks = (S.data.tasks ||= {}), name = String(p.name).replace(/\s+/g, ' ').trim();
     let kind = p.kind;
@@ -367,6 +369,7 @@ function renderTab() {
   else if (S.tab === 'files') renderFiles();
   else if (S.tab === 'tasks') renderTasks();
   else if (S.tab === 'food') { if (typeof Food !== 'undefined') Food.render(); }
+  else if (S.tab === 'money') { if (typeof Money !== 'undefined') Money.render(); }
   else if (S.tab === 'timegen') renderTimegen();
   else if (S.tab === 'assistant') renderAssistant();
   else if (S.tab === 'admin') renderAdmin();
@@ -2496,7 +2499,7 @@ async function onAuthChange(profile, msg) {
   $('#navAdmin').hidden = !admin;
   $('#navUpload').hidden = admin;   // admins do not upload files for themselves
   // an admin only sees completion across everyone: no personal pages, no files, no tasks; the assistant only knows completion
-  $$('.nav-btn').forEach(b => { if (['buy', 'files', 'tasks', 'timegen', 'food'].includes(b.dataset.tab)) b.hidden = admin; });
+  $$('.nav-btn').forEach(b => { if (['buy', 'money', 'files', 'tasks', 'timegen', 'food'].includes(b.dataset.tab)) b.hidden = admin; });
   S.members = []; S.memberYears = {};
   astro()?.onSignIn(profile);   // finds this person's linked pair, shows the Astrology tab and the Today banner
   push()?.onSignIn(profile);    // refreshes this phone's notification token (pwa.js)
@@ -3356,8 +3359,8 @@ function buildPlan() {
  * The agent loop and the data tools run here; Code.gs only proxies to Groq.
  * Tools return aggregates and short series, never free-text notes.
  * ======================================================= */
-const AI_METRICS = ['dos', 'habits', 'sleep', 'weight', 'water', 'work', 'spending', 'food', 'period'];
-const AI_NAME = { dos: 'Daily Dos', habits: 'Habits', sleep: 'Sleep', weight: 'Weight', water: 'Water', work: 'Work location', spending: 'Spending', food: 'Food', period: 'Period cycle' };
+const AI_METRICS = ['dos', 'habits', 'sleep', 'weight', 'water', 'work', 'spending', 'money', 'food', 'period'];
+const AI_NAME = { dos: 'Daily Dos', habits: 'Habits', sleep: 'Sleep', weight: 'Weight', water: 'Water', work: 'Work location', spending: 'Spending', money: 'Money', food: 'Food', period: 'Period cycle' };
 S.chat = { msgs: [], ui: [], reports: [], busy: false, paint: null };
 
 const r1 = x => x === null || x === undefined || isNaN(x) ? null : Math.round(x * 10) / 10;
@@ -3439,6 +3442,10 @@ function summaryOf(metric, win) {
       note: 'Calories are estimates the user logged or corrected.'
     };
   }
+  if (metric === 'money') {
+    if (typeof Money === 'undefined') return { available: false };
+    return Money.summary(a, b);
+  }
   if (metric === 'period') {
     if (!S.idx.period) return { available: false, reason: 'This tracker has no Period Tracker sheet.' };
     const P = analyzePeriod(), t = todayKey();
@@ -3492,7 +3499,7 @@ function runTool(name, a) {
       const A = analyzeWork(win);
       return { metric: 'work', from: win[0], to: win[1], months: A.months.map((m, i) => ({ month: m, ...A.perMonth[i] })) };
     }
-    if (a.metric === 'spending' || a.metric === 'period') return { metric: a.metric, ...summaryOf(a.metric, win) };
+    if (a.metric === 'spending' || a.metric === 'period' || a.metric === 'money') return { metric: a.metric, ...summaryOf(a.metric, win) };
     const raw = seriesPoints(a.metric, win), pts = bucket(raw);
     return { metric: a.metric, from: win[0], to: win[1], averaged_per_week: pts.length !== raw.length, points: pts.map(([date, value]) => ({ date, value })) };
   }
@@ -3577,6 +3584,7 @@ function chartImage(spec) {
 function tilesFor(metric, s) {
   const v = (x, suf = '') => x === null || x === undefined ? '—' : x + suf;
   if (metric === 'food') return s.days_logged ? [['Average', v(s.avg_per_logged_day.kcal, ' kcal')], ['Target', s.target ? s.target.kcal + ' kcal' : '—'], ['Protein', v(s.avg_per_logged_day.protein_g, ' g')], ['Days logged', s.days_logged]] : [];
+  if (metric === 'money') return s.tracking_since ? [['Balance now', rupee(s.balance_now)], ['Income', rupee(s.period.income)], ['Spent', rupee(s.period.spent)], ['Saved', rupee(s.period.saved)]] : [];
   if (metric === 'period') return s.periods_logged ? [['Average cycle', v(s.avg_cycle_days, ' d')], ['Next expected', s.next_period_expected ? fmt(s.next_period_expected) : '—'], ['Average length', v(s.avg_period_days, ' d')]] : [];
   if (metric === 'dos' || metric === 'habits') return s.days_logged ? [['Average done', v(s.avg_completion_pct, '%')], ['Days logged', s.days_logged], ['Best', s.best_items?.[0]?.name || '—']] : [];
   if (metric === 'sleep') return s.nights ? [['Average', v(s.avg_hours, ' h')], ['Nights', s.nights], ['Usual bedtime', s.usual_bedtime], ['Usual wake-up', s.usual_wake], ['In 7–9 h', v(s.pct_nights_7_to_9h, '%')]] : [];
@@ -3845,7 +3853,7 @@ function renderAssistant() {
   const form = h('form', { class: 'chat-form', onsubmit: e => { e.preventDefault(); const t = input.value; input.value = ''; sendChat(t); } }, input, sendBtn);
   const newBtn = h('button', { class: 'btn small ghost', onclick: () => { if (S.chat.busy) return; S.chat.msgs = []; S.chat.ui = []; paint(); } }, icon('refresh'), 'New chat');
   fill(body, h('div', { class: 'card chat-card' },
-    h('div', { class: 'chat-head' }, h('p', { class: 'sub' }, admin ? 'Participant names, invited email addresses, completion and water statistics (no task names or other personal data) are sent to Groq to write answers.' : 'Your questions and summary statistics (tasks, sleep, weight, water, work, spending, food, period cycle and astrology readings; no notes) are sent to Groq to write answers. Not medical advice.'), newBtn),
+    h('div', { class: 'chat-head' }, h('p', { class: 'sub' }, admin ? 'Participant names, invited email addresses, completion and water statistics (no task names or other personal data) are sent to Groq to write answers.' : 'Your questions and summary statistics (tasks, sleep, weight, water, work, spending, money, food, period cycle and astrology readings; no notes) are sent to Groq to write answers. Not medical advice.'), newBtn),
     log, form));
   S.chat.paint = paint;
   paint();

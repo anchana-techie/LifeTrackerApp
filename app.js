@@ -1217,6 +1217,7 @@ async function quickBuy(it, li, check) {
   if (navigator.vibrate) try { navigator.vibrate(12); } catch { /* ignore */ }
   const wait = ms => new Promise(r => setTimeout(r, reduceMotion() ? 0 : ms));
   try {
+    if (S.buyDirty) await saveBuyDraft();   // keep the prices typed in the editor
     await Promise.all([api('markBought', { product, date, bought: true }), wait(380)]);
     li.classList.add('leaving');
     await wait(420);
@@ -1224,8 +1225,11 @@ async function quickBuy(it, li, check) {
     buildIndex();
     if (!buyState().pending.length) renderToBuy.celebrate = true;
     renderBought.pop = true;
+    const noPrice = it.cost === '' || it.cost === null || it.cost === undefined;
+    if (noPrice) { S.boughtOpen = true; S.boughtEditing = norm(product); }
     renderBuy();
-    toast(`${product} bought · ${fmt(date)}`, false, { label: 'Undo', fn: () => doMarkBought(product, date, false) });
+    if (noPrice) setTimeout(() => { const c = $('#boughtCard .bought-edit input[type=number]'); c?.focus(); c?.scrollIntoView({ block: 'center', behavior: reduceMotion() ? 'auto' : 'smooth' }); }, 80);
+    toast(noPrice ? `${product} bought · add the price paid` : `${product} bought · ${fmt(date)}`, false, { label: 'Undo', fn: () => { S.boughtEditing = null; doMarkBought(product, date, false); } });
   } catch (err) {
     li.classList.remove('checking', 'leaving'); check.disabled = false;
     toast(err.message, true);
@@ -1268,7 +1272,7 @@ function boughtEditRow(it) {
   const ym = monthKey(S.buyMonth), [yy, mm] = ym.split('-').map(Number);
   const last = `${ym}-${pad(new Date(yy, mm, 0).getDate())}`;
   const nameI = h('input', { type: 'text', list: 'productNames', value: it.product, maxlength: '80', 'aria-label': 'Name' });
-  const costI = h('input', { type: 'number', min: '0', step: '1', inputmode: 'numeric', value: it.cost ?? '', placeholder: '₹', 'aria-label': 'Price paid' });
+  const costI = h('input', { type: 'number', min: '0', step: 'any', inputmode: 'decimal', value: it.cost ?? '', placeholder: '₹', 'aria-label': 'Price paid' });
   const dateI = h('input', { type: 'date', value: it.date, min: clampDate(`${ym}-01`), max: clampDate(last), 'aria-label': 'Date bought' });
   const save = h('button', { class: 'btn small primary', type: 'button' }, icon('device-floppy'), ' Save');
   save.onclick = async () => {
@@ -1283,7 +1287,31 @@ function boughtEditRow(it) {
   };
   return h('li', { class: 'bought-edit' },
     h('label', null, 'Name', nameI), h('label', null, 'Price paid ₹', costI), h('label', null, 'Bought on', dateI),
-    h('div', { class: 'row-actions' }, h('button', { class: 'btn small ghost', type: 'button', onclick: () => { S.boughtEditing = null; renderBought(); } }, 'Cancel'), h('span', { class: 'spacer' }), save));
+    h('div', { class: 'row-actions bought-edit-actions' },
+      h('button', { class: 'icon-btn danger-text', type: 'button', title: 'Delete', 'aria-label': `Delete ${it.product}`, onclick: () => removeBought(it, true) }, icon('trash')),
+      h('button', { class: 'btn small ghost', type: 'button', title: 'Move back to To buy', onclick: () => removeBought(it, false) }, icon('arrow-back-up'), ' Not bought'),
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'btn small ghost', type: 'button', onclick: () => { S.boughtEditing = null; renderBought(); } }, 'Cancel'), save));
+}
+
+/** Not bought: clears the bought mark, the item goes back to To buy. Delete: also takes it off this month's list. */
+async function removeBought(it, del) {
+  if (S.readOnly) return toast('This is a read-only view.', true);
+  if (del && !confirm(`Delete ${it.product} from ${S.buyMonth}? It also stops counting in Money.`)) return;
+  const month = S.buyMonth;
+  try {
+    await api('markBought', { product: it.product, date: it.date, bought: false });
+    if (!S.demo) applyLocal('markBought', { product: it.product, date: it.date, bought: false });
+    if (del) {
+      const saved = S.data.sheets.buy.months[month] || [];
+      const payload = { month, items: saved.filter(x => norm(x.product) !== norm(it.product)).map(x => ({ product: x.product, cost: x.cost ?? '' })), budget: S.data.budgets?.[month] ?? '' };
+      await api('saveBuyList', payload);
+      if (!S.demo) applyLocal('saveBuyList', payload);
+    }
+    S.boughtEditing = null; S.buyDraft = null;
+    buildIndex(); renderBuy();
+    toast(del ? `${it.product} deleted` : `${it.product} moved back to To buy`);
+  } catch (err) { toast(err.message, true); }
 }
 
 /** Uses the existing script actions: move the bought mark if the name or date changed, then save the month list. */
@@ -1300,6 +1328,7 @@ async function editBought(it, next) {
   if (renamed || next.cost !== oldCost) {
     const saved = S.data.sheets.buy.months[month] || [];
     const items = saved.map(x => norm(x.product) === norm(it.product) ? { product: next.product, cost: next.cost } : { product: x.product, cost: x.cost ?? '' });
+    if (!saved.some(x => norm(x.product) === norm(it.product))) items.push({ product: next.product, cost: next.cost });
     const payload = { month, items, budget: S.data.budgets?.[month] ?? '' };
     await api('saveBuyList', payload);
     if (!S.demo) applyLocal('saveBuyList', payload);
@@ -1334,7 +1363,7 @@ function buyRow(it, i) {
   };
   rowEl.append(bic,
     h('input', { class: 'p', list: 'productNames', value: it.product, placeholder: 'Product', 'aria-label': `Product ${i + 1}`, oninput: e => { it.product = e.target.value; markBuyDirty(); drawStatus(); renderBuySummary(); } }),
-    h('input', { class: 'c', type: 'number', min: '0', step: '1', inputmode: 'numeric', value: it.cost, placeholder: '₹', 'aria-label': 'Approx cost', oninput: e => { it.cost = e.target.value; markBuyDirty(); renderBuySummary(); } }),
+    h('input', { class: 'c', type: 'number', min: '0', step: 'any', inputmode: 'decimal', value: it.cost, placeholder: '₹', 'aria-label': 'Approx cost', oninput: e => { it.cost = e.target.value; markBuyDirty(); renderBuySummary(); } }),
     statusCell,
     h('button', { class: 'remove', 'aria-label': 'Remove', onclick: () => { S.buyDraft.items.splice(i, 1); markBuyDirty(); renderBuy(); } }, icon('x')));
   drawStatus();
@@ -1355,16 +1384,23 @@ async function doMarkBought(product, date, bought) {
   } catch (err) { toast(err.message, true); }
 }
 
+/** saves the editor's list as it is now (names, prices, budget) */
+async function saveBuyDraft() {
+  const d = S.buyDraft;
+  const items = d.items.filter(i => i.product.trim()).map(i => ({ product: i.product.trim(), cost: i.cost === '' || i.cost === null ? '' : Number(i.cost) }));
+  const payload = { month: d.month, items, budget: d.budget === '' ? '' : Number(d.budget) };
+  await api('saveBuyList', payload);
+  if (!S.demo) applyLocal('saveBuyList', payload);
+  S.buyDraft = null; S.buyDirty = false;
+  ensureDraft();
+}
 async function saveBuy() {
   if (S.readOnly) return toast('This is a read-only view.', true);
   const d = S.buyDraft;
-  const items = d.items.filter(i => i.product.trim()).map(i => ({ product: i.product.trim(), cost: i.cost === '' ? '' : Number(i.cost) }));
-  const payload = { month: d.month, items, budget: d.budget === '' ? '' : Number(d.budget) };
   const btn = $('#saveBuyBtn');
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
-    await api('saveBuyList', payload);
-    if (!S.demo) applyLocal('saveBuyList', payload);
+    await saveBuyDraft();
     S.buyDraft = null;
     buildIndex();
     renderBuy();

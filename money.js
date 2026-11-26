@@ -50,7 +50,8 @@ const Money = (() => {
     for (const mName of Object.keys(months)) {
       for (const it of months[mName] || []) {
         const bd = boughtInMonth(it.product, mName);
-        if (!bd || bd < lo || bd > to || !(Number(it.cost) > 0)) continue;
+        if (!bd || bd < lo || bd > to) continue;
+        if (!(Number(it.cost) > 0)) { out.push({ src: 'buy', id: 'nop:' + mName + ':' + it.product, date: bd, kind: 'noprice', label: it.product, amount: 0, month: mName }); continue; }
         const sav = isSavingItem(it.product);
         out.push({ src: 'buy', id: 'buy:' + mName + ':' + it.product, date: bd, kind: sav ? 'saving' : 'spend', category: sav ? 'Savings (Buy list)' : 'Buy list', label: it.product, amount: Number(it.cost), product: it.product });
       }
@@ -230,6 +231,7 @@ const Money = (() => {
     const list = events(`${M.month}-01`, lastDay(M.month)), t = totals(list);
     const spent = t.spend + Math.max(0, -t.adjust), income = t.income + Math.max(0, t.adjust);
     const left = income - spent - t.saving;
+    const noPrice = list.filter(e => e.kind === 'noprice');
     const due = list.filter(e => e.kind === 'due'), upcoming = list.filter(e => e.kind === 'upcoming');
     const shown = list.filter(e => counted(e));
     const cats = Object.entries(t.byCat).sort((a, b) => b[1] - a[1]);
@@ -244,6 +246,11 @@ const Money = (() => {
       due.length ? h('div', { class: 'mn-due' }, h('h3', null, icon('bell-ringing'), ' Waiting for an amount'),
         due.map(e => h('div', { class: 'mn-due-row' }, h('span', null, h('b', null, e.label), h('span', { class: 'muted' }, ` · due ${fmt(e.date)}`)),
           ro ? null : h('button', { class: 'btn small primary', type: 'button', onclick: () => { M.form = { type: e.realKind === 'saving' ? 'Saving' : 'Spend', amount: '', category: e.category, date: e.date, note: e.label, bill: e.billObj.id, label: e.label }; render(); window.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' }); } }, 'Enter amount')))) : null,
+      noPrice.length ? h('div', { class: 'mn-due' }, h('h3', null, icon('alert-circle'), ' Bought, but no price yet'),
+        h('p', { class: 'sub' }, `${noPrice.map(e => e.label).join(', ')}: not counted until you add the price paid.`),
+        h('div', { class: 'row-actions' }, h('span', { class: 'spacer' }), h('button', { class: 'btn small primary', type: 'button', onclick: () => {
+          S.buyMonth = noPrice[0].month; S.buyDraft = null; S.boughtOpen = true; S.boughtEditing = norm(noPrice[0].label); switchTab('buy');
+        } }, 'Add price'))) : null,
       cats.length ? h('div', { class: 'mn-cats-chart' }, h('h3', null, 'Where it went'),
         cats.map(([c, v], i) => h('div', { class: 'mn-cat-row', style: `--i:${i}` },
           h('span', { class: 'mn-cat-ico' }, icon(catIcon(c, 'spend'))), h('span', { class: 'mn-cat-name' }, c),

@@ -883,7 +883,7 @@ html.standalone body { -webkit-tap-highlight-color: transparent; }
 .toast-action:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
 
 /* To buy card */
-.tobuy-card { position: relative; overflow: hidden; }
+.tobuy-card { position: relative; overflow: clip; }
 .tobuy-card::before { content: ''; position: absolute; inset: -40% -20% auto auto; width: 220px; height: 220px; border-radius: 50%;
   background: radial-gradient(circle, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%); pointer-events: none; }
 .tb-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; position: relative; }

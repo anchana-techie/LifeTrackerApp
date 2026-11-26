@@ -1129,7 +1129,7 @@ function countUp(el, to, fmtFn, key) {
   const t0 = performance.now(), dur = 650;
   const step = now => {
     const k = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - k, 3);
-    el.textContent = fmtFn(Math.round(from + (to - from) * e));
+    el.textContent = fmtFn(k < 1 ? Math.round(from + (to - from) * e) : to);
     if (k < 1) requestAnimationFrame(step);
   };
   requestAnimationFrame(step);

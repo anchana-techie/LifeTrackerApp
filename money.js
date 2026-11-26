@@ -28,7 +28,10 @@ const Money = (() => {
   const lastDay = ym => { const [y, m] = ym.split('-').map(Number); return `${ym}-${pad(new Date(y, m, 0).getDate())}`; };
   const addMonth = (ym, n) => { const [y, m] = ym.split('-').map(Number); const d = new Date(y, m - 1 + n, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; };
   const isSavingItem = name => data().savingsItems.some(x => norm(x) === norm(name));
-  const money = n => (n < 0 ? '−' : '') + rupee(Math.abs(Math.round(n)));
+  /** ₹ with paise only when there are any: ₹1,500 / ₹62.84 */
+  const rs = n => { const v = Math.round(Math.abs(Number(n)) * 100) / 100; return '₹' + v.toLocaleString('en-IN', { minimumFractionDigits: v % 1 ? 2 : 0, maximumFractionDigits: 2 }); };
+  const money = n => (Math.round(n * 100) < 0 ? '−' : '') + rs(n);
+  const r2 = n => Math.round(n * 100) / 100;
 
   /* ---------- the ledger ---------- */
   /** Every money event in [from, to] (dates), from the start date on. kind: income | spend | saving | adjust | due | upcoming */
@@ -107,7 +110,7 @@ const Money = (() => {
   const catIcon = (c, kind) => ICON[c] || (kind === 'income' ? 'arrow-down-left' : kind === 'saving' ? 'pig-money' : c === 'Buy list' ? 'shopping-cart' : c === 'Untracked' ? 'help-circle' : 'receipt');
 
   function setupCard() {
-    const amt = h('input', { type: 'number', min: '0', step: '1', inputmode: 'decimal', placeholder: 'e.g. 15000', class: 'mn-big-input', 'aria-label': 'Balance today' });
+    const amt = h('input', { type: 'number', min: '0', step: 'any', inputmode: 'decimal', placeholder: 'e.g. 15000', class: 'mn-big-input', 'aria-label': 'Balance today' });
     const date = h('input', { type: 'date', value: clampDate(todayKey()), min: S.idx.first, max: S.idx.last, 'aria-label': 'Starting date' });
     return h('form', { class: 'card mn-setup', onsubmit: e => {
       e.preventDefault();
@@ -134,7 +137,7 @@ const Money = (() => {
   function hero() {
     const st = startEntry(), bal = balance(), ro = S.readOnly;
     const num = h('span', { class: 'mn-balance-num' + (bal < 0 ? ' neg' : '') });
-    countUp(num, Math.round(bal), money, 'mn-balance');
+    countUp(num, r2(bal), money, 'mn-balance');
     return h('div', { class: 'card mn-hero' },
       h('div', { class: 'mn-hero-top' },
         h('div', null, h('p', { class: 'mn-cap' }, 'Balance now'), num, h('p', { class: 'sub' }, `Tracking since ${fmt(st.date)} · started with ${money(st.amount)}`)),
@@ -155,7 +158,7 @@ const Money = (() => {
 
   function entryForm() {
     const f = M.form, st = startEntry();
-    const amt = h('input', { type: 'number', min: '0', step: '1', inputmode: 'decimal', value: f.amount, placeholder: '₹ 0', class: 'mn-big-input', 'aria-label': 'Amount' });
+    const amt = h('input', { type: 'number', min: '0', step: 'any', inputmode: 'decimal', value: f.amount, placeholder: '₹ 0', class: 'mn-big-input', 'aria-label': 'Amount' });
     amt.addEventListener('input', () => { f.amount = amt.value; });
     const date = h('input', { type: 'date', value: f.date, min: st.date, max: S.idx.last, 'aria-label': 'Date' });
     date.addEventListener('change', () => { f.date = date.value; });
@@ -170,7 +173,7 @@ const Money = (() => {
       if (!(v > 0) && !(f.bill && v === 0)) return toast('Enter an amount.', true);
       if (!f.date || f.date < st.date) return toast(`Pick a date from ${fmt(st.date)} on.`, true);
       sendQuick('saveMoney', { id: f.id || rid(), date: f.date, type: f.type, category: f.category, note: f.note.trim(), amount: v, bill: f.bill || '' });
-      toast(f.id ? 'Saved' : `${f.type === 'Income' ? 'Income' : f.type === 'Saving' ? 'Saving' : 'Spend'} of ${rupee(v)} added`);
+      toast(f.id ? 'Saved' : `${f.type === 'Income' ? 'Income' : f.type === 'Saving' ? 'Saving' : 'Spend'} of ${rs(v)} added`);
       M.month = ymOf(f.date); M.form = null; M.flash = true;
       render();
     };
@@ -191,14 +194,14 @@ const Money = (() => {
   }
 
   function checkPanel(bal) {
-    const real = h('input', { type: 'number', step: '1', inputmode: 'decimal', placeholder: 'Your bank + cash now', class: 'mn-big-input', 'aria-label': 'Real balance' });
+    const real = h('input', { type: 'number', step: 'any', inputmode: 'decimal', placeholder: 'Your bank + cash now', class: 'mn-big-input', 'aria-label': 'Real balance' });
     const out = h('p', { class: 'sub mn-check-out' }, `The app says ${money(bal)}.`);
     const btn = h('button', { class: 'btn primary', type: 'button', disabled: true }, icon('check'), ' Save difference');
     real.addEventListener('input', () => {
       const diff = Math.round((Number(real.value) - bal) * 100) / 100;
       btn.disabled = real.value === '' || diff === 0;
       out.textContent = real.value === '' ? `The app says ${money(bal)}.` : diff === 0 ? 'Spot on. Nothing to fix 🎯'
-        : diff < 0 ? `${rupee(-diff)} less than the app: it will be saved as untracked spending.` : `${rupee(diff)} more than the app: it will be saved as untracked income.`;
+        : diff < 0 ? `${rs(-diff)} less than the app: it will be saved as untracked spending.` : `${rs(diff)} more than the app: it will be saved as untracked income.`;
     });
     btn.onclick = () => {
       const diff = Math.round((Number(real.value) - bal) * 100) / 100;
@@ -232,7 +235,7 @@ const Money = (() => {
     const cats = Object.entries(t.byCat).sort((a, b) => b[1] - a[1]);
     const maxCat = cats[0]?.[1] || 1;
     const ro = S.readOnly;
-    const tile = (label, val, cls, key) => { const n = h('b'); countUp(n, Math.round(val), money, key + M.month); return h('div', { class: 'mn-tile ' + cls }, h('span', null, label), n); };
+    const tile = (label, val, cls, key) => { const n = h('b'); countUp(n, r2(val), money, key + M.month); return h('div', { class: 'mn-tile ' + cls }, h('span', null, label), n); };
     return h('div', { class: 'card mn-month' },
       monthBar(),
       h('div', { class: 'mn-tiles' }, tile('Income', income, 'in', 'i'), tile('Spent', spent, 'out', 's'), tile('Saved', t.saving, 'save', 'v'), tile('Left', left, left < 0 ? 'neg' : 'left', 'l')),
@@ -244,11 +247,11 @@ const Money = (() => {
       cats.length ? h('div', { class: 'mn-cats-chart' }, h('h3', null, 'Where it went'),
         cats.map(([c, v], i) => h('div', { class: 'mn-cat-row', style: `--i:${i}` },
           h('span', { class: 'mn-cat-ico' }, icon(catIcon(c, 'spend'))), h('span', { class: 'mn-cat-name' }, c),
-          h('span', { class: 'mn-cat-track' }, h('i', { style: `--w:${(v / maxCat * 100).toFixed(1)}%` })), h('b', null, rupee(Math.round(v)))))) : null,
+          h('span', { class: 'mn-cat-track' }, h('i', { style: `--w:${(v / maxCat * 100).toFixed(1)}%` })), h('b', null, rs(v))))) : null,
       h('div', { class: 'mn-list-wrap' }, h('h3', null, 'Entries'),
         shown.length ? h('ul', { class: 'mn-list' + (M.flash ? ' flash' : '') }, shown.map((e, i) => entryRow(e, i))) : h('p', { class: 'sub' }, 'Nothing yet this month.')),
       upcoming.length ? h('div', { class: 'mn-upcoming' }, h('h3', null, 'Coming up'),
-        upcoming.map(e => h('div', { class: 'mn-up-row' }, icon(e.realKind === 'saving' ? 'pig-money' : 'calendar-due'), h('span', null, e.label), h('span', { class: 'muted' }, fmt(e.date)), h('b', null, e.amount ? rupee(e.amount) : 'varies')))) : null);
+        upcoming.map(e => h('div', { class: 'mn-up-row' }, icon(e.realKind === 'saving' ? 'pig-money' : 'calendar-due'), h('span', null, e.label), h('span', { class: 'muted' }, fmt(e.date)), h('b', null, e.amount ? rs(e.amount) : 'varies')))) : null);
   }
 
   function entryRow(e, i) {
@@ -274,7 +277,7 @@ const Money = (() => {
     return h('li', { class: 'mn-row ' + cls, style: `--i:${Math.min(i, 12)}` },
       h('span', { class: 'mn-row-ico' }, icon(catIcon(e.category, e.kind))),
       h('span', { class: 'mn-row-main' }, h('b', null, e.label), h('span', { class: 'muted' }, `${fmt(e.date, { day: 'numeric', month: 'short' })} · ${sub}`)),
-      h('b', { class: 'mn-row-amt' }, sign + rupee(Math.abs(Math.round(e.amount)))),
+      h('b', { class: 'mn-row-amt' }, sign + rs(e.amount)),
       action || h('span'));
   }
   function deleteAdjust(e) {
@@ -293,13 +296,13 @@ const Money = (() => {
     const bar = h('button', { class: 'bought-bar', type: 'button', 'aria-expanded': String(open), onclick: () => { M.billsOpen = !open; M.billForm = null; render(); } },
       h('span', { class: 'bought-bar-ico' }, icon('calendar-repeat')), h('span', { class: 'bought-bar-title' }, 'Monthly bills & SIPs'),
       h('span', { class: 'pill' }, String(bills.filter(active).length)), h('span', { class: 'spacer' }),
-      h('b', null, bills.length ? `${rupee(monthly)}${sav ? ` + ${rupee(sav)} saved` : ''}` : ''), h('span', { class: 'bought-chev' }, icon('chevron-down')));
+      h('b', null, bills.length ? `${rs(monthly)}${sav ? ` + ${rs(sav)} saved` : ''}` : ''), h('span', { class: 'bought-chev' }, icon('chevron-down')));
     const inner = h('div', { class: 'bought-inner' },
       h('ul', { class: 'bought-list' },
         bills.length ? bills.map(b => M.billForm?.id === b.id ? h('li', null, billForm()) : h('li', { class: 'bought-item mn-bill' + (active(b) ? '' : ' stopped') },
           h('span', { class: 'tb-ico' + (b.kind === 'Saving' ? ' done' : '') }, icon(b.kind === 'Saving' ? 'pig-money' : catIcon(b.category, 'spend'))),
           h('span', { class: 'bought-name' }, h('b', null, b.name), h('span', { class: 'muted' }, `Every month on the ${C_ord(b.day)}${b.kind === 'Saving' ? ' · saving' : ''}${active(b) ? '' : ` · stopped after ${ymLabel(b.until)}`}`)),
-          h('span', { class: 'tb-cost' }, b.variable ? 'varies' : rupee(b.amount)),
+          h('span', { class: 'tb-cost' }, b.variable ? 'varies' : rs(b.amount)),
           ro ? h('span') : h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Edit ${b.name}`, onclick: () => { M.billForm = { ...b, amount: b.variable ? '' : b.amount }; render(); } }, icon('pencil'))))
           : h('li', { class: 'sub mn-bills-empty' }, 'Add rent, EMI, phone, subscriptions or a SIP once, and they count every month on their day.'),
         M.billForm && !M.billForm.id ? h('li', null, billForm()) : null),
@@ -315,7 +318,7 @@ const Money = (() => {
     const name = h('input', { type: 'text', maxlength: '60', value: f.name, placeholder: 'e.g. Rent, Phone, SIP', 'aria-label': 'Name' });
     const kind = h('select', { 'aria-label': 'Type' }, h('option', { value: 'Bill' }, 'Bill (spending)'), h('option', { value: 'Saving' }, 'Saving (SIP, RD…)'));
     kind.value = f.kind;
-    const amt = h('input', { type: 'number', min: '0', step: '1', inputmode: 'decimal', value: f.amount, placeholder: '₹', 'aria-label': 'Amount' });
+    const amt = h('input', { type: 'number', min: '0', step: 'any', inputmode: 'decimal', value: f.amount, placeholder: '₹', 'aria-label': 'Amount' });
     const vari = h('input', { type: 'checkbox', checked: !!f.variable });
     const day = h('input', { type: 'number', min: '1', max: '28', step: '1', value: f.day, 'aria-label': 'Day of month' });
     const cat = h('select', { 'aria-label': 'Category' }, [...CATS.Spend, ...CATS.Saving].map(([c]) => h('option', { value: c }, c)));
@@ -372,9 +375,9 @@ const Money = (() => {
     const list = events(a < st.date ? st.date : a, b > todayKey() ? todayKey() : b), t = totals(list);
     const income = t.income + Math.max(0, t.adjust), spent = t.spend + Math.max(0, -t.adjust);
     return {
-      tracking_since: st.date, starting_balance: st.amount, balance_now: Math.round(balance()),
-      period: { income: Math.round(income), spent: Math.round(spent), saved: Math.round(t.saving), left: Math.round(income - spent - t.saving) },
-      spent_by_category: Object.fromEntries(Object.entries(t.byCat).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, Math.round(v)])),
+      tracking_since: st.date, starting_balance: st.amount, balance_now: r2(balance()),
+      period: { income: r2(income), spent: r2(spent), saved: r2(t.saving), left: r2(income - spent - t.saving) },
+      spent_by_category: Object.fromEntries(Object.entries(t.byCat).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, r2(v)])),
       income_entries: list.filter(e => e.kind === 'income').map(e => ({ date: e.date, amount: e.amount, what: e.label })),
       biggest_spends: list.filter(e => e.kind === 'spend').sort((x, y) => y.amount - x.amount).slice(0, 5).map(e => ({ date: e.date, amount: e.amount, what: e.label, category: e.category })),
       monthly_bills: data().bills.filter(x => !x.until || x.until >= ymOf(todayKey())).map(x => ({ name: x.name, amount: x.variable ? 'varies' : x.amount, day: x.day, kind: x.kind })),

@@ -163,15 +163,26 @@ const Money = (() => {
     amt.addEventListener('input', () => { f.amount = amt.value; });
     const date = h('input', { type: 'date', value: f.date, min: st.date, max: S.idx.last, 'aria-label': 'Date' });
     date.addEventListener('change', () => { f.date = date.value; });
-    const note = h('input', { type: 'text', maxlength: '120', value: f.note, placeholder: f.type === 'Income' ? 'e.g. November salary' : 'Note (optional)', 'aria-label': 'Note' });
-    note.addEventListener('input', () => { f.note = note.value; });
+    const past = [...new Map(data().entries.filter(e => e.type === f.type && e.note).sort((a, b) => a.date < b.date ? -1 : 1).map(e => [norm(e.note), e])).values()];
+    const listId = 'mnWhat' + f.type;
+    const note = h('input', { type: 'text', maxlength: '120', value: f.note, list: listId, autocomplete: 'off', class: 'mn-what',
+      placeholder: f.type === 'Income' ? 'e.g. November salary' : f.type === 'Saving' ? 'e.g. SBI FD, gold coin' : 'e.g. Lunch, auto to office, movie', 'aria-label': f.type === 'Spend' ? 'What did you spend on' : 'What' });
+    note.addEventListener('input', () => {
+      f.note = note.value;
+      const hit = past.find(e => norm(e.note) === norm(note.value));   // same thing as before: pick its category again
+      if (hit && hit.category && CATS[f.type].some(([c]) => c === hit.category) && !f.bill) {
+        f.category = hit.category; chips.querySelectorAll('.chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.cat === hit.category)));
+      }
+    });
+    const dl = h('datalist', { id: listId }, past.slice(-40).reverse().map(e => h('option', { value: e.note })));
     const chips = h('div', { class: 'chips mn-cats', role: 'group', 'aria-label': 'Category' },
-      CATS[f.type].map(([c, ic]) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(f.category === c), onclick: e => {
+      CATS[f.type].map(([c, ic]) => h('button', { type: 'button', class: 'chip', 'data-cat': c, 'aria-pressed': String(f.category === c), onclick: e => {
         f.category = c; chips.querySelectorAll('.chip').forEach(b => b.setAttribute('aria-pressed', String(b === e.currentTarget)));
       } }, icon(ic), ' ', c)));
     const save = () => {
       const v = Number(f.amount);
       if (!(v > 0) && !(f.bill && v === 0)) return toast('Enter an amount.', true);
+      if (f.type === 'Spend' && !f.note.trim() && !f.bill) { note.focus(); return toast('What did you spend on?', true); }
       if (!f.date || f.date < st.date) return toast(`Pick a date from ${fmt(st.date)} on.`, true);
       sendQuick('saveMoney', { id: f.id || rid(), date: f.date, type: f.type, category: f.category, note: f.note.trim(), amount: v, bill: f.bill || '' });
       toast(f.id ? 'Saved' : `${f.type === 'Income' ? 'Income' : f.type === 'Saving' ? 'Saving' : 'Spend'} of ${rs(v)} added`);
@@ -182,8 +193,10 @@ const Money = (() => {
     return h('div', { class: 'mn-form ' + f.type.toLowerCase() },
       h('div', { class: 'mn-form-head' }, h('b', null, f.id ? `Edit ${f.type.toLowerCase()}` : f.bill ? `${f.label} · ${ymLabel(ymOf(f.date))}` : TYPE_LABEL[f.type]),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: () => { M.form = null; render(); } }, icon('x'))),
-      amt, f.bill ? null : chips,
-      h('div', { class: 'mn-form-row' }, h('label', null, 'Date', date), h('label', null, 'Note', note)),
+      amt,
+      h('label', null, f.type === 'Spend' ? 'What did you spend on?' : f.type === 'Income' ? 'What is it?' : 'What did you save in?', note, dl),
+      f.bill ? null : h('div', { class: 'mn-cat-label' }, 'Category'), f.bill ? null : chips,
+      h('label', null, 'Date', date),
       f.bill ? h('p', { class: 'sub' }, 'Enter 0 to skip this month.') : null,
       h('div', { class: 'row-actions' },
         f.id ? h('button', { class: 'btn small ghost danger-text', type: 'button', onclick: () => {
@@ -230,7 +243,10 @@ const Money = (() => {
   function monthCard() {
     const list = events(`${M.month}-01`, lastDay(M.month)), t = totals(list);
     const spent = t.spend + Math.max(0, -t.adjust), income = t.income + Math.max(0, t.adjust);
-    const left = income - spent - t.saving;
+    const st = startEntry(), first = `${M.month}-01`, t0 = todayKey();
+    const opening = first <= st.date ? st.amount : balance(addDays(first, -1));
+    const left = balance(lastDay(M.month) < t0 ? lastDay(M.month) : t0 < first ? first : t0);
+    const pool = opening + income;
     const noPrice = list.filter(e => e.kind === 'noprice');
     const due = list.filter(e => e.kind === 'due'), upcoming = list.filter(e => e.kind === 'upcoming');
     const shown = list.filter(e => counted(e));
@@ -241,8 +257,10 @@ const Money = (() => {
     return h('div', { class: 'card mn-month' },
       monthBar(),
       h('div', { class: 'mn-tiles' }, tile('Income', income, 'in', 'i'), tile('Spent', spent, 'out', 's'), tile('Saved', t.saving, 'save', 'v'), tile('Left', left, left < 0 ? 'neg' : 'left', 'l')),
-      income ? h('div', { class: 'mn-split', role: 'img', 'aria-label': `Of income: ${Math.round(spent / income * 100)}% spent, ${Math.round(t.saving / income * 100)}% saved` },
-        h('i', { class: 'out', style: `flex:${Math.max(0, spent)}` }), h('i', { class: 'save', style: `flex:${Math.max(0, t.saving)}` }), h('i', { class: 'left', style: `flex:${Math.max(0, left)}` })) : h('p', { class: 'sub' }, 'No income logged this month yet. Add it when your salary arrives.'),
+      h('p', { class: 'sub mn-left-note' }, `${first <= st.date ? 'Started with' : `Brought in from ${monthName(addMonth(M.month, -1))}`} ${money(opening)}${income ? ` + ${money(income)} income` : ''} − ${money(spent)} spent${t.saving ? ` − ${money(t.saving)} saved` : ''} = ${money(left)} left`),
+      pool > 0 ? h('div', { class: 'mn-split', role: 'img', 'aria-label': `Of the money for the month: ${Math.round(spent / pool * 100)}% spent, ${Math.round(t.saving / pool * 100)}% saved` },
+        h('i', { class: 'out', style: `flex:${Math.max(0, spent)}` }), h('i', { class: 'save', style: `flex:${Math.max(0, t.saving)}` }), h('i', { class: 'left', style: `flex:${Math.max(0, left)}` })) : null,
+      income ? null : h('p', { class: 'sub' }, 'No income logged this month yet. Add it when your salary arrives.'),
       due.length ? h('div', { class: 'mn-due' }, h('h3', null, icon('bell-ringing'), ' Waiting for an amount'),
         due.map(e => h('div', { class: 'mn-due-row' }, h('span', null, h('b', null, e.label), h('span', { class: 'muted' }, ` · due ${fmt(e.date)}`)),
           ro ? null : h('button', { class: 'btn small primary', type: 'button', onclick: () => { M.form = { type: e.realKind === 'saving' ? 'Saving' : 'Spend', amount: '', category: e.category, date: e.date, note: e.label, bill: e.billObj.id, label: e.label }; render(); window.scrollTo({ top: 0, behavior: reduceMotion() ? 'auto' : 'smooth' }); } }, 'Enter amount')))) : null,

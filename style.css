@@ -1070,3 +1070,6 @@ html.standalone body { -webkit-tap-highlight-color: transparent; }
 .mn-bills-empty { padding: 10px 4px; }
 .mn-bill-add { padding: 8px 4px 4px; }
 @media (prefers-reduced-motion: reduce) { .mn-split i, .mn-cat-track i, .mn-list.flash .mn-row, .mn-form { animation: none; } }
+.mn-cat-label { font-size: .85rem; color: var(--ink-2); font-weight: 600; margin-bottom: -4px; }
+.mn-what { font-size: 1.05rem; }
+.mn-left-note { margin: -4px 0 0; }

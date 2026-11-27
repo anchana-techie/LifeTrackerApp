@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-27
+- **Added** Admin **reminders several times a day**: in Send a notification pick *Several times a day*; preset 10 AM · 2 PM · 6 PM · 10 PM (editable, remembered), one Send schedules them all. Times already past today are skipped.
+- **Added** Admin **Schedule & status** card: pick a day to see each message, its times, which have gone out, and who opened it and when. Edit the text and times that have not gone out yet, or cancel them (all, or one time).
+- **Changed** Messages are now marked seen (`seenAt`) instead of deleted, so the admin can see who opened them; the admin page clears messages older than 30 days. **Publish the new `firestore.rules`** (admin can read/edit/cancel messages; people can mark theirs seen) and **paste the new `Code.gs` + deploy a New version** (`pushDue` now looks only at the last 2 days). Until the rules are published, messages still disappear when opened, as before.
+- **Fixed** Admin: *Select all* now updates the "selected" count.
+- Previous version on the branch `backup-before-reminders`.
+
 Newest first. Add a line here with every feature change.
 
 ## 2026-11-26

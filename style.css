@@ -1075,3 +1075,39 @@ html.standalone body { -webkit-tap-highlight-color: transparent; }
 .mn-left-note { margin: -4px 0 0; }
 .mn-startday { display: grid; gap: 6px; }
 .mn-startday .mn-check-line { color: var(--ink); font-size: .92rem; }
+
+/* ---------- admin: several times a day + schedule & status ---------- */
+.notify-mode { flex-wrap: wrap; margin-top: 4px; }
+.notify-multi { display: grid; gap: 8px; margin-top: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; }
+.notify-multi-date { max-width: 220px; }
+.notify-times { display: flex; flex-wrap: wrap; gap: 8px; }
+.notify-time { display: inline-flex; align-items: center; gap: 2px; padding: 4px 4px 4px 6px; border-radius: 12px; background: var(--accent-soft); animation: tbIn .3s cubic-bezier(.2, .8, .2, 1) both; }
+.settings .notify-time input { width: auto; min-width: 0; border: 0; background: transparent; font-weight: 700; color: var(--ink); padding: 6px 4px; margin: 0; }
+.notify-time .x, .remind-slot-time .x { border: 0; background: none; color: var(--ink-3); cursor: pointer; width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; }
+.notify-time .x:hover, .remind-slot-time .x:hover { background: var(--surface-2); color: var(--bad); }
+.remind-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.remind-head h2 { margin-bottom: 2px; }
+.remind-nav { display: flex; align-items: center; gap: 4px; }
+.remind-nav #remindDay { min-width: 92px; justify-content: center; }
+.remind-sum { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 4px; color: var(--ink-2); font-size: .9rem; }
+.remind-sum b { color: var(--ink); font-size: 1.05rem; }
+.remind-empty { display: flex; align-items: center; gap: 10px; color: var(--ink-3); padding: 14px 0; }
+.remind-block { margin-top: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; display: grid; gap: 10px; animation: tbIn .35s cubic-bezier(.2, .8, .2, 1) both; }
+.remind-block.editing { border-color: var(--accent); }
+.remind-block-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: start; }
+.notice-ico.small { width: 34px; height: 34px; font-size: 1.05rem; margin: 0; }
+.remind-text { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
+.remind-actions { display: flex; gap: 4px; }
+.remind-slots { display: grid; gap: 8px; }
+.remind-slot { display: grid; gap: 6px; padding-left: 12px; border-left: 3px solid var(--warn); }
+.remind-slot.out { border-left-color: var(--accent); }
+.remind-slot-time { display: flex; align-items: center; gap: 8px; }
+.remind-slot-time .pill { margin-left: 0; }
+.remind-people { display: flex; flex-wrap: wrap; gap: 6px; }
+.remind-person { display: inline-flex; align-items: center; gap: 2px; font-size: .84rem; padding: 4px 10px; border-radius: 99px; background: var(--surface-2); color: var(--ink-2); }
+.remind-person.seen { background: var(--accent-soft); color: var(--accent-strong); font-weight: 600; }
+.remind-person.wait { color: var(--ink-3); }
+.remind-person .muted { font-weight: 400; }
+.remind-editor { display: grid; gap: 8px; }
+.remind-editor textarea { width: 100%; }
+@media (prefers-reduced-motion: reduce) { .remind-block, .notify-time { animation: none; } }

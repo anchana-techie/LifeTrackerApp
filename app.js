@@ -502,7 +502,7 @@ function renderLog() {
   $('#dateLabel').textContent = date === t ? 'Today' : fmt(date, { weekday: 'long' });
   $('#dateSub').textContent = fmt(date, { day: 'numeric', month: 'long', year: 'numeric' }) + (date === t ? ` · ${fmt(date, { weekday: 'long' })}` : '');
   if (date !== t && t >= S.idx.first && t <= S.idx.last) $('#dateSub').append(' · ', h('button', { class: 'linkbtn', onclick: () => { S.logDate = t; renderLog(); } }, 'Go to today'));
-  $$('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
+  $$('.seg:not(.notify-mode) button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
   S.countFns = [];
   renderWeekStrip();
   const body = $('#logBody');
@@ -2989,12 +2989,55 @@ function fillNotifyPeople(members, invites) {
   sync();
 }
 
+/* ----- when: now · once later · several times a day ----- */
+const REMIND_PRESET = ['10:00', '14:00', '18:00', '22:00'];
+const NFW = { mode: 'now', times: null };
+const localDay = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const hm12 = t => { const [hh, mm] = t.split(':').map(Number); return `${hh % 12 || 12}${mm ? ':' + pad(mm) : ''} ${hh < 12 ? 'AM' : 'PM'}`; };
+function remindTimes() {
+  if (!NFW.times) { try { NFW.times = JSON.parse(localStorage.getItem('lt.remindTimes')) || null; } catch { NFW.times = null; } }
+  if (!Array.isArray(NFW.times) || !NFW.times.length) NFW.times = REMIND_PRESET.slice();
+  return NFW.times;
+}
+function keepTimes() { try { localStorage.setItem('lt.remindTimes', JSON.stringify(NFW.times)); } catch { /* fine */ } }
+function setNotifyMode(mode) {
+  NFW.mode = mode;
+  $$('#notifyMode button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+  $('#notifyOnce').hidden = mode !== 'once';
+  $('#notifyMulti').hidden = mode !== 'multi';
+  if (mode === 'multi') { if (!$('#notifyMultiDate').value) $('#notifyMultiDate').value = localDay(); renderNotifyTimes(); }
+  setWhenHint();
+}
+function renderNotifyTimes() {
+  const times = remindTimes();
+  fill($('#notifyTimes'), ...times.map((t, i) => {
+    const inp = h('input', { type: 'time', value: t, 'aria-label': `Time ${i + 1}`, onchange: e => { if (e.target.value) { times[i] = e.target.value; times.sort(); keepTimes(); renderNotifyTimes(); } } });
+    return h('div', { class: 'notify-time' }, inp,
+      times.length > 1 ? h('button', { type: 'button', class: 'x', 'aria-label': `Remove ${hm12(t)}`, onclick: () => { times.splice(i, 1); keepTimes(); renderNotifyTimes(); } }, icon('x')) : null);
+  }));
+  setWhenHint();
+}
+/** The Date list for "several times a day" on the chosen date; times already past are left out. */
+function multiDates() {
+  const day = $('#notifyMultiDate').value || localDay(), [y, mo, d] = day.split('-').map(Number), now = Date.now();
+  const all = [...new Set(remindTimes())].sort().map(t => { const [hh, mm] = t.split(':').map(Number); return new Date(y, mo - 1, d, hh, mm); });
+  return { all, future: all.filter(x => x.getTime() > now), day };
+}
 function setWhenHint() {
+  const hint = $('#notifyWhenHint');
+  if (NFW.mode === 'now') { hint.textContent = 'Each person sees it when they next open the app (or straight away if online), and on their phone if notifications are on.'; return; }
+  if (NFW.mode === 'multi') {
+    const { all, future, day } = multiDates();
+    const when = day === localDay() ? 'today' : fmt(day);
+    hint.textContent = !future.length ? `All these times have passed ${when}. Pick another date.`
+      : `${plural(future.length, 'reminder')} ${when}: ${future.map(x => hm12(`${pad(x.getHours())}:${pad(x.getMinutes())}`)).join(' · ')}${all.length > future.length ? ` (${all.length - future.length} already passed, skipped)` : ''}. Phones get each within 5 minutes of its time.`;
+    return;
+  }
   const d = $('#notifyDate').value, t = $('#notifyTime').value;
-  $('#notifyWhenHint').textContent = d && t ? 'Shown at that date and time (your local time), or at their next login after it.'
+  hint.textContent = d && t ? 'Shown at that date and time (your local time), or at their next login after it.'
     : d ? 'No time chosen, so it is shown at 9:00 AM on that date.'
     : t ? 'No date chosen, so it is shown today at that time.'
-    : 'Leave both empty and each person sees it when they next log in (or straight away if online).';
+    : 'Pick a date and/or a time.';
 }
 
 async function doNotify(e) {
@@ -3004,30 +3047,129 @@ async function doNotify(e) {
   st.className = 'sub';
   if (!text) return problem('Type a message.');
   if (!NF.selected.size) return problem('Choose at least one person.');
-  const n = NF.selected.size, dStr = $('#notifyDate').value, tStr = $('#notifyTime').value;
-  let when = null;   // no date and no time = show on login
-  if (dStr || tStr) {
+  const n = NF.selected.size, people = `${n} ${n === 1 ? 'person' : 'people'}`;
+  let when = null;   // null = now
+  if (NFW.mode === 'once') {
+    const dStr = $('#notifyDate').value, tStr = $('#notifyTime').value;
+    if (!dStr && !tStr) return problem('Pick a date and/or a time, or choose Now.');
     const now = new Date(), [y, mo, d] = dStr ? dStr.split('-').map(Number) : [now.getFullYear(), now.getMonth() + 1, now.getDate()];
     const [hh, mm] = tStr ? tStr.split(':').map(Number) : [9, 0];   // a date alone means 9:00 AM
     when = new Date(y, mo - 1, d, hh, mm);
-    if (when <= now) return problem(dStr ? 'That date and time has already passed.' : 'That time has already passed today. Pick a date, or clear the schedule.');
+    if (when <= now) return problem(dStr ? 'That date and time has already passed.' : 'That time has already passed today. Pick a date.');
+  } else if (NFW.mode === 'multi') {
+    when = multiDates().future;
+    if (!when.length) return problem('All these times have passed. Pick another date.');
   }
   btn.disabled = true; st.textContent = 'Sending…';
   try {
-    const ids = await Account.sendMessage([...NF.selected], text, NF.icon, S.user.userName, when);
-    $('#notifyDate').value = ''; $('#notifyTime').value = ''; setWhenHint();
+    const group = NFW.mode === 'multi' ? 'g' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) : '';
+    const ids = await Account.sendMessage([...NF.selected], text, NF.icon, S.user.userName, when, group);
+    $('#notifyDate').value = ''; $('#notifyTime').value = '';
     $('#notifyText').value = ''; $('#notifyCount').textContent = '0 / 300'; st.textContent = '';
-    const people = `${n} ${n === 1 ? 'person' : 'people'}`;
-    if (when) toast(`Scheduled for ${people}: ${when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`);
+    if (Array.isArray(when)) toast(`${plural(when.length, 'reminder')} scheduled for ${people}: ${when.map(x => x.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })).join(' · ')}`);
+    else if (when) toast(`Scheduled for ${people}: ${when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`);
     else {
       // always ask the script: it knows which phones have notifications on, the browser's config does not matter here
       let phones = '';
       try { const r = await api('push', { ids }); phones = r.phones ? ` · ${plural(r.phones, 'phone')} notified` : ' · no phones have notifications on'; }
-      catch (err) { toast(`Sent to ${people}, but the phone notification failed: ${err.message}`, true); return; }
-      toast(`Sent to ${people}${phones}`);
+      catch (err) { toast(`Sent to ${people}, but the phone notification failed: ${err.message}`, true); }
+      if (!phones) { /* toast already shown */ } else toast(`Sent to ${people}${phones}`);
     }
+    setWhenHint();
+    if (Array.isArray(when)) RM.day = multiDates().day; else if (when) RM.day = localDay(when);
+    renderReminders(true);
   } catch (err) { problem(err.message); }
   finally { btn.disabled = false; }
+}
+
+/* ----- schedule & status: what goes out on a day, what went out, who opened it ----- */
+const RM = { day: null, list: [], editing: null };
+function remindName(email) { return NF.recipients.find(r => r.email === email)?.name || (S.members || []).find(m => m.email === email)?.userName || email; }
+async function renderReminders(reload) {
+  const box = $('#remindList');
+  if (!box) return;
+  RM.day ||= localDay();
+  $('#remindDay').textContent = RM.day === localDay() ? 'Today' : fmt(RM.day, { weekday: 'short', day: 'numeric', month: 'short' });
+  if (reload !== false) {
+    if (!RM.list.length) fill(box, h('p', { class: 'sub' }, 'Loading…'));
+    try {
+      const [y, mo, d] = RM.day.split('-').map(Number);
+      RM.list = await Account.listMessagesOn(new Date(y, mo - 1, d), new Date(y, mo - 1, d + 1));
+    } catch (err) { return fill(box, h('p', { class: 'sub err' }, `${err.message} (publish the latest Firestore rules: README step 2).`)); }
+  }
+  const now = Date.now(), at = m => (m.deliverAt || m.createdAt)?.toMillis?.() ?? now;
+  // one block per send: same group, or (older sends) same text and time
+  const groups = new Map();
+  for (const m of RM.list) {
+    const key = m.group || `t:${m.text}|${at(m)}`;
+    if (!groups.has(key)) groups.set(key, { key, text: m.text, icon: m.icon, msgs: [] });
+    groups.get(key).msgs.push(m);
+  }
+  const blocks = [...groups.values()].sort((a, b) => Math.min(...a.msgs.map(at)) - Math.min(...b.msgs.map(at)));
+  if (!blocks.length) return fill(box, h('div', { class: 'remind-empty' }, icon('calendar-off'), h('p', { class: 'sub' }, 'Nothing scheduled or sent on this day.')));
+  const sentN = RM.list.filter(m => at(m) <= now).length, openN = RM.list.filter(m => m.seenAt).length;
+  fill(box,
+    h('div', { class: 'remind-sum' }, h('span', null, h('b', null, String(RM.list.length)), ' total'), h('span', null, h('b', null, String(sentN)), ' gone out'),
+      h('span', null, h('b', null, String(RM.list.length - sentN)), ' waiting'), h('span', null, h('b', null, String(openN)), ' opened')),
+    ...blocks.map(g => remindBlock(g, at, now)));
+}
+function remindBlock(g, at, now) {
+  const slots = new Map();
+  g.msgs.forEach(m => { const t = at(m); if (!slots.has(t)) slots.set(t, []); slots.get(t).push(m); });
+  const times = [...slots.keys()].sort((a, b) => a - b);
+  const pending = g.msgs.filter(m => at(m) > now);
+  const editing = RM.editing === g.key;
+  const tLabel = t => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const head = h('div', { class: 'remind-block-head' },
+    h('span', { class: 'notice-ico small' }, icon(safeNotifyIcon(g.icon))),
+    h('p', { class: 'remind-text' }, g.text),
+    pending.length && !editing ? h('div', { class: 'remind-actions' },
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Edit', title: 'Edit what has not gone out yet', onclick: () => { RM.editing = g.key; renderReminders(false); } }, icon('pencil')),
+      h('button', { class: 'icon-btn danger-text', type: 'button', 'aria-label': 'Cancel', title: 'Cancel what has not gone out yet', onclick: () => cancelReminders(pending, `Cancel ${plural(pending.length, 'message')} that ${pending.length === 1 ? 'has' : 'have'} not gone out yet?`) }, icon('trash'))) : null);
+  if (editing) return h('div', { class: 'remind-block editing' }, head, remindEditor(g, slots, times, at, now));
+  return h('div', { class: 'remind-block' }, head,
+    h('div', { class: 'remind-slots' }, times.map(t => {
+      const ms = slots.get(t), out = t <= now, opened = ms.filter(m => m.seenAt).length;
+      return h('div', { class: 'remind-slot' + (out ? ' out' : '') },
+        h('div', { class: 'remind-slot-time' }, h('b', null, tLabel(t)),
+          h('span', { class: 'pill ' + (out ? (opened === ms.length ? 'teal' : '') : 'warn') }, out ? `${opened}/${ms.length} opened` : 'waiting'),
+          !out ? h('button', { class: 'x', type: 'button', 'aria-label': `Cancel ${tLabel(t)}`, title: 'Cancel this time', onclick: () => cancelReminders(ms, `Cancel the ${tLabel(t)} message?`) }, icon('x')) : null),
+        h('div', { class: 'remind-people' }, ms.map(m => h('span', { class: 'remind-person ' + (m.seenAt ? 'seen' : out ? 'sent' : 'wait'),
+          title: m.seenAt ? `Opened ${m.seenAt.toDate().toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}` : out ? (m.pushed ? 'Gone out, also to the phone · not opened yet' : 'Gone out · not opened yet') : 'Waiting for its time' },
+          icon(m.seenAt ? 'checks' : out ? 'check' : 'clock'), ' ', remindName(m.email),
+          m.seenAt ? h('span', { class: 'muted' }, ' ' + m.seenAt.toDate().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) : null))));
+    })));
+}
+function remindEditor(g, slots, times, at, now) {
+  const text = h('textarea', { rows: '3', maxlength: '300' }); text.value = g.text;
+  const timeInputs = times.filter(t => t > now).map(t => { const d = new Date(t); return { t, inp: h('input', { type: 'time', value: `${pad(d.getHours())}:${pad(d.getMinutes())}`, 'aria-label': 'Time' }) }; });
+  const save = async () => {
+    const v = text.value.trim();
+    if (!v) return toast('Type a message.', true);
+    const changes = [];
+    for (const { t, inp } of timeInputs) {
+      const d = new Date(t), [hh, mm] = (inp.value || '').split(':').map(Number);
+      if (!inp.value) return toast('Fill in every time.', true);
+      const next = new Date(d.getFullYear(), d.getMonth(), d.getDate(), hh, mm);
+      if (next.getTime() <= Date.now()) return toast(`${inp.value} has already passed.`, true);
+      slots.get(t).forEach(m => changes.push({ id: m.id, text: v, icon: m.icon || 'bell', deliverAt: next }));
+    }
+    try { await Account.updateMessages(changes); RM.editing = null; toast('Updated'); renderReminders(true); }
+    catch (err) { toast(err.message, true); }
+  };
+  return h('div', { class: 'remind-editor' },
+    h('label', null, 'Message', text),
+    h('div', { class: 'field-label' }, 'Times not gone out yet'),
+    h('div', { class: 'notify-times' }, timeInputs.map(x => h('div', { class: 'notify-time' }, x.inp))),
+    h('p', { class: 'sub' }, 'Times that have already gone out stay as they are.'),
+    h('div', { class: 'row-actions' }, h('span', { class: 'spacer' }),
+      h('button', { class: 'btn small ghost', type: 'button', onclick: () => { RM.editing = null; renderReminders(false); } }, 'Close'),
+      h('button', { class: 'btn small primary', type: 'button', onclick: save }, 'Save')));
+}
+async function cancelReminders(msgs, question) {
+  if (!await askConfirm('Cancel?', question, 'Cancel them')) return;
+  try { await Account.cancelMessages(msgs.map(m => m.id)); toast('Cancelled'); renderReminders(true); }
+  catch (err) { toast(err.message, true); }
 }
 
 /** Starts listening for admin messages; resolves once the first batch has been shown and dismissed.
@@ -3061,7 +3203,7 @@ function watchMessages() {
     S.msgTimer = timer;
     if (!open) next();
   };
-  S.msgUnsub = Account.watchMessages(S.user.email, list => { latest = list; process(); });
+  S.msgUnsub = Account.watchMessages(S.user.email, list => { latest = list.filter(m => !m.seenAt); process(); });
   return firstDone;
 }
 function stopWatchingMessages() {
@@ -3093,6 +3235,8 @@ async function renderAdmin() {
         ? h('button', { class: 'btn small', onclick: () => removeMember(m, years[i]) }, icon('trash'), 'Remove')
         : null)));
     fillNotifyPeople(members, invites);
+    renderReminders(true);
+    Account.pruneMessages();
     fill(inviteBox, ...invites.map(inv => {
       const joined = members.some(m => m.email === inv.email);
       return h('div', { class: 'row' }, h('span', null, inv.email), h('span', { class: 'muted' }, joined ? 'registered' : 'waiting'),
@@ -3908,7 +4052,7 @@ function init() {
     applyTheme(THEMES[(THEMES.indexOf(cur) + 1) % 3]);
     if (S.data && S.tab === 'analysis') renderAnalysis();
   }));
-  $$('.seg button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; renderLog(); }));
+  $$('.seg:not(.notify-mode) button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; renderLog(); }));
   $('#sheetForm').addEventListener('submit', e => { e.preventDefault(); S.demo = false; if (S.groupMode) loadGroup(); else loadSheet(); });
   $('#yearSelect').addEventListener('change', e => {
     if (!confirmDiscard()) { e.target.value = S.year || ''; return; }
@@ -3977,13 +4121,26 @@ function init() {
   $('#adminUploadForm').addEventListener('submit', doAdminUpload);
   buildNotifyIcons();
   $('#notifyForm').addEventListener('submit', doNotify);
-  $('#notifyDate').min = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  $('#notifyDate').min = $('#notifyMultiDate').min = localDay();
+  $$('#notifyMode button').forEach(b => b.addEventListener('click', () => setNotifyMode(b.dataset.mode)));
+  $('#notifyMultiDate').addEventListener('input', setWhenHint);
+  $('#notifyAddTime').addEventListener('click', () => {
+    const times = remindTimes(), last = times[times.length - 1] || '09:00', [hh, mm] = last.split(':').map(Number);
+    times.push(`${pad(Math.min(23, hh + 4))}:${pad(mm)}`); keepTimes(); renderNotifyTimes();
+  });
+  $('#notifyResetTimes').addEventListener('click', () => { NFW.times = REMIND_PRESET.slice(); keepTimes(); renderNotifyTimes(); });
+  const shiftDay = n => { const [y, mo, d] = (RM.day || localDay()).split('-').map(Number); RM.day = localDay(new Date(y, mo - 1, d + n)); RM.editing = null; renderReminders(true); };
+  $('#remindPrev').addEventListener('click', () => shiftDay(-1));
+  $('#remindNext').addEventListener('click', () => shiftDay(1));
+  $('#remindDay').addEventListener('click', () => { RM.day = localDay(); RM.editing = null; renderReminders(true); });
+  $('#remindRefresh').addEventListener('click', () => renderReminders(true));
   ['#notifyDate', '#notifyTime'].forEach(s => $(s).addEventListener('input', setWhenHint));
   $('#notifyClearWhen').addEventListener('click', () => { $('#notifyDate').value = ''; $('#notifyTime').value = ''; setWhenHint(); });
   $('#notifyText').addEventListener('input', e => { $('#notifyCount').textContent = `${e.target.value.length} / 300`; });
   $('#notifyAll').addEventListener('change', e => {
     NF.selected = new Set(e.target.checked ? NF.recipients.map(r => r.email) : []);
-    $$('#notifyPeople input').forEach(cb => { cb.checked = e.target.checked; });
+    $$('#notifyPeople input').forEach(cb => { cb.checked = e.target.checked; cb.closest('.person')?.classList.toggle('on', cb.checked); });
+    $('#notifyPicked').textContent = `${NF.selected.size} selected`;
   });
   $('#inviteForm').addEventListener('submit', async e => {
     e.preventDefault();

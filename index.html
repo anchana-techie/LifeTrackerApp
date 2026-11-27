@@ -21,19 +21,19 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons-outline.min.css">
-  <link rel="stylesheet" href="style.css?v=20261126h">
+  <link rel="stylesheet" href="style.css?v=20261127a">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" defer></script>
-  <script src="pwa.js?v=20261126h" defer></script>
-  <script src="config.js?v=20261126h" defer></script>
-  <script src="account.js?v=20261126h" defer></script>
-  <script src="app.js?v=20261126h" defer></script>
-  <script src="group.js?v=20261126h" defer></script>
-  <script src="astro.js?v=20261126h" defer></script>
-  <script src="food.js?v=20261126h" defer></script>
-  <script src="money.js?v=20261126h" defer></script>
+  <script src="pwa.js?v=20261127a" defer></script>
+  <script src="config.js?v=20261127a" defer></script>
+  <script src="account.js?v=20261127a" defer></script>
+  <script src="app.js?v=20261127a" defer></script>
+  <script src="group.js?v=20261127a" defer></script>
+  <script src="astro.js?v=20261127a" defer></script>
+  <script src="food.js?v=20261127a" defer></script>
+  <script src="money.js?v=20261127a" defer></script>
 </head>
 <body>
 <!-- SIGN IN / REGISTER -->
@@ -323,13 +323,27 @@
               <div id="notifyIcons" class="icon-pick" role="radiogroup" aria-label="Notification icon"></div>
               <label>Message <textarea id="notifyText" rows="3" maxlength="300" placeholder="Type your message" required></textarea></label>
               <div class="sub" id="notifyCount">0 / 300</div>
-              <div class="field-label">Schedule <span class="muted">(optional)</span></div>
-              <div class="notify-when">
+              <div class="field-label">When</div>
+              <div class="seg notify-mode" id="notifyMode" role="group" aria-label="When">
+                <button type="button" data-mode="now" aria-pressed="true">Now</button>
+                <button type="button" data-mode="once" aria-pressed="false">Once later</button>
+                <button type="button" data-mode="multi" aria-pressed="false"><i class="ti ti-repeat" aria-hidden="true"></i> Several times a day</button>
+              </div>
+              <div class="notify-when" id="notifyOnce" hidden>
                 <label>Date <input type="date" id="notifyDate"></label>
                 <label>Time <input type="time" id="notifyTime"></label>
                 <button type="button" class="btn small ghost" id="notifyClearWhen">Clear</button>
               </div>
-              <p class="sub" id="notifyWhenHint">Leave both empty and each person sees it when they next log in (or straight away if online).</p>
+              <div id="notifyMulti" class="notify-multi" hidden>
+                <label class="notify-multi-date">Date <input type="date" id="notifyMultiDate"></label>
+                <div class="field-label">Times</div>
+                <div id="notifyTimes" class="notify-times"></div>
+                <div class="row-actions">
+                  <button type="button" class="btn small ghost" id="notifyAddTime"><i class="ti ti-plus" aria-hidden="true"></i> Add a time</button>
+                  <button type="button" class="btn small ghost" id="notifyResetTimes"><i class="ti ti-restore" aria-hidden="true"></i> 10 AM · 2 PM · 6 PM · 10 PM</button>
+                </div>
+              </div>
+              <p class="sub" id="notifyWhenHint">Each person sees it when they next open the app (or straight away if online).</p>
               <div class="field-label">Send to</div>
               <div class="notify-box">
                 <div class="notify-head">
@@ -341,6 +355,18 @@
               <div class="row-actions"><button class="btn primary" id="notifyBtn" type="submit"><i class="ti ti-send" aria-hidden="true"></i> Send</button></div>
             </form>
             <p id="notifyStatus" class="sub"></p>
+          </div>
+          <div class="card settings wide" id="remindCard">
+            <div class="remind-head">
+              <div><h2>Schedule &amp; status</h2><p class="sub">What goes out on a day, what has gone out, and who opened it.</p></div>
+              <div class="remind-nav">
+                <button type="button" class="icon-btn" id="remindPrev" aria-label="Previous day"><i class="ti ti-chevron-left" aria-hidden="true"></i></button>
+                <button type="button" class="btn small ghost" id="remindDay">Today</button>
+                <button type="button" class="icon-btn" id="remindNext" aria-label="Next day"><i class="ti ti-chevron-right" aria-hidden="true"></i></button>
+                <button type="button" class="icon-btn" id="remindRefresh" aria-label="Refresh"><i class="ti ti-refresh" aria-hidden="true"></i></button>
+              </div>
+            </div>
+            <div id="remindList"><p class="sub">Loading…</p></div>
           </div>
         </div>
       </section>

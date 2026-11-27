@@ -1710,11 +1710,14 @@ function pushMessages_(auth, req) {
 
 /** Time trigger: push scheduled messages whose time has come. */
 function pushDue() {
-  var now = new Date().toISOString();
+  // only the last 2 days: opened messages are now kept (so the admin can see them), older ones were pushed long ago
+  var now = new Date().toISOString(), since = new Date(Date.now() - 2 * 864e5).toISOString();
   var rows = ownerQuery_({
     from: [{ collectionId: 'messages' }],
-    where: { fieldFilter: { field: { fieldPath: 'deliverAt' }, op: 'LESS_THAN_OR_EQUAL', value: { timestampValue: now } } },
-    limit: 200
+    where: { compositeFilter: { op: 'AND', filters: [
+      { fieldFilter: { field: { fieldPath: 'deliverAt' }, op: 'LESS_THAN_OR_EQUAL', value: { timestampValue: now } } },
+      { fieldFilter: { field: { fieldPath: 'deliverAt' }, op: 'GREATER_THAN_OR_EQUAL', value: { timestampValue: since } } }] } },
+    limit: 300
   });
   pushDocs_(rows.filter(function (d) { return !fsBool_(d, 'pushed'); }));
 }

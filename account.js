@@ -146,26 +146,67 @@ const Account = (() => {
           e => { console.warn('Could not read messages (are the Firestore rules published?)', e.code || e); onData([]); });
       } catch (e) { onData([]); return () => {}; }
     },
+    /** Marks a message seen (the admin sees it as opened). Falls back to deleting it if the rules are older. */
     async deleteMessage(id) {
-      try { await db.doc('messages/' + id).delete(); } catch (e) { /* shown again next time */ }
+      try { await db.doc('messages/' + id).update({ seenAt: firebase.firestore.FieldValue.serverTimestamp() }); }
+      catch (e) { try { await db.doc('messages/' + id).delete(); } catch (e2) { /* shown again next time */ } }
     },
 
     /* ----- admin ----- */
     /** Admin: send one message to each email. Throws if any write is refused. */
     /** Admin: send one message to each email. Returns the new message ids. Throws if any write is refused. */
-    async sendMessage(emails, text, icon, by, deliverAt) {
+    /** deliverAt: a Date, a list of Dates (one message per time: reminders several times a day), or null = now.
+     *  group ties the messages of one send together. */
+    async sendMessage(emails, text, icon, by, deliverAt, group) {
       try {
-        const batch = db.batch(), ids = [];
-        [...new Set(emails.map(lower))].forEach(email => {
+        const times = Array.isArray(deliverAt) ? deliverAt : [deliverAt || null];
+        const ids = [], writes = [];
+        [...new Set(emails.map(lower))].forEach(email => times.forEach(when => {
           const ref = db.collection('messages').doc();
           ids.push(ref.id);
-          batch.set(ref, {
-            email, text, icon, by, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            ...(deliverAt ? { deliverAt: firebase.firestore.Timestamp.fromDate(deliverAt) } : {}) });
-        });
-        await batch.commit();
+          writes.push([ref, { email, text, icon, by, createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            ...(when ? { deliverAt: firebase.firestore.Timestamp.fromDate(when) } : {}), ...(group ? { group } : {}) }]);
+        }));
+        for (let i = 0; i < writes.length; i += 400) {
+          const batch = db.batch();
+          writes.slice(i, i + 400).forEach(([ref, d]) => batch.set(ref, d));
+          await batch.commit();
+        }
         return ids;
       } catch (e) { fail(e); }
+    },
+    /** Admin: messages for one day (scheduled for it, or sent straight away on it). */
+    async listMessagesOn(from, to) {
+      try {
+        const ts = d => firebase.firestore.Timestamp.fromDate(d), col = db.collection('messages');
+        const [a, b] = await Promise.all([
+          col.where('deliverAt', '>=', ts(from)).where('deliverAt', '<', ts(to)).get(),
+          col.where('createdAt', '>=', ts(from)).where('createdAt', '<', ts(to)).get()]);
+        const map = new Map();
+        a.docs.forEach(d => map.set(d.id, { id: d.id, ...d.data() }));
+        b.docs.forEach(d => { const x = d.data(); if (!x.deliverAt) map.set(d.id, { id: d.id, ...x }); });
+        return [...map.values()];
+      } catch (e) { fail(e); }
+    },
+    /** Admin: change the text / icon / time of messages, or cancel them. changes: [{ id, text, icon, deliverAt: Date }] */
+    async updateMessages(changes) {
+      try {
+        const batch = db.batch();
+        changes.forEach(c => batch.update(db.doc('messages/' + c.id), { text: c.text, icon: c.icon,
+          ...(c.deliverAt ? { deliverAt: firebase.firestore.Timestamp.fromDate(c.deliverAt) } : {}) }));
+        await batch.commit();
+      } catch (e) { fail(e); }
+    },
+    async cancelMessages(ids) {
+      try { const batch = db.batch(); ids.forEach(id => batch.delete(db.doc('messages/' + id))); await batch.commit(); } catch (e) { fail(e); }
+    },
+    /** Admin: removes messages older than 30 days (opened or not), so the list stays small. Quiet on failure. */
+    async pruneMessages() {
+      try {
+        const old = await db.collection('messages').where('createdAt', '<', firebase.firestore.Timestamp.fromMillis(Date.now() - 30 * 864e5)).limit(300).get();
+        if (old.empty) return;
+        const batch = db.batch(); old.docs.forEach(d => batch.delete(d.ref)); await batch.commit();
+      } catch (e) { /* next time */ }
     },
 
     /* ----- phone notifications (push_tokens) ----- */

@@ -96,6 +96,7 @@ Lets the admin's messages reach people's phones as real notifications, even when
 4. **Deploy → Manage deployments → ✏️ Edit → Version: New version → Deploy.**
 5. Publish the updated `firestore.rules` (new `push_tokens` table).
 For a good-morning nudge at about 9 am (India time) for everyone with notifications on: in the Apps Script editor click **+ → Script**, name it `Morning`, paste the repo's `Morning.gs`, save, and run **setupMorning** once. Run **morningPush** to send one straight away as a test.
+   **Reminders several times a day:** Admin → Send a notification → **When: Several times a day**. The times start as 10 AM · 2 PM · 6 PM · 10 PM; change, add or remove any (the browser remembers your set). One **Send** schedules one message per time for each person picked. **Schedule & status** (below it) shows a day's messages: what is waiting, what has gone out, and who opened each (with the time); ✏️ edits the text and times not gone out yet, 🗑 / × cancels them.
 6. Each person: **Settings → Phone notifications → Turn on notifications**. On iPhone this only works in the installed app (iOS 16.4 or later): install it first, open it from the home screen, then turn notifications on.
 
 The script must be owned by an account that is an owner of the Firebase project (it sends with that login). If sending fails with "not authorised", run **setupPush** again.
